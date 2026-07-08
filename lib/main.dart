@@ -10,17 +10,25 @@ void main() {
 class CareerHubApp extends StatelessWidget {
   const CareerHubApp({super.key});
 
+static const _seedColor = Color(0xFF0D3B36); // custom deep teal
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'CareerHub',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0D3B36), // custom deep teal
+          colorScheme: ColorScheme.fromSeed(seedColor: _seedColor), 
           brightness: Brightness.light,
+        useMaterial3: true,
+      ), 
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: _seedColor,
+          brightness: Brightness.dark,
         ),
         useMaterial3: true,
       ),
+      themeMode: ThemeMode.system, //System aware Theme Mode
       home: const HomeScreen(),
     );
   }

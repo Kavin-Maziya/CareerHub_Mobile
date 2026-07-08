@@ -34,6 +34,7 @@ class JobCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
 
+            // Company name uses bodyMedium with onSurfaceVariant colour.
             Text(
               job.company,
               style: theme.textTheme.bodyMedium?.copyWith(
@@ -42,6 +43,7 @@ class JobCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
 
+            // Location and employment type use bodySmall.
             Row(
               children: [
                 Icon(Icons.location_on_outlined,
@@ -55,7 +57,9 @@ class JobCard extends StatelessWidget {
                 Text(job.employmentType, style: theme.textTheme.bodySmall),
               ],
             ),
+
             const SizedBox(height: 8),
+            // Salary uses bodyMedium.
             Text(
               job.displaySalary,
               style: theme.textTheme.bodyMedium?.copyWith(
