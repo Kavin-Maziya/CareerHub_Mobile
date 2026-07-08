@@ -1,4 +1,5 @@
 
+import 'package:careerhub_mobile/widgets/job_status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:careerhub_mobile/models/job.dart';
 
@@ -34,6 +35,7 @@ class JobCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
 
+            // Company name uses bodyMedium with onSurfaceVariant colour.
             Text(
               job.company,
               style: theme.textTheme.bodyMedium?.copyWith(
@@ -42,6 +44,7 @@ class JobCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
 
+            // Location and employment type use bodySmall.
             Row(
               children: [
                 Icon(Icons.location_on_outlined,
@@ -55,7 +58,9 @@ class JobCard extends StatelessWidget {
                 Text(job.employmentType, style: theme.textTheme.bodySmall),
               ],
             ),
+
             const SizedBox(height: 8),
+            // Salary uses bodyMedium.
             Text(
               job.displaySalary,
               style: theme.textTheme.bodyMedium?.copyWith(
@@ -68,17 +73,7 @@ class JobCard extends StatelessWidget {
             // Absent means no row at all — no "Closes: " label, no gap.
             if (job.closingDate != null) ...[
               const SizedBox(height: 6),
-              Row(
-                children: [
-                  Icon(Icons.event_outlined,
-                      size: 16, color: theme.colorScheme.onSurfaceVariant),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Closes: ${_formatDate(job.closingDate!)}',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
-              ),
+             JobStatusBadge(isOpen: job.canApply), // extracted widget, not inline
             ],
           ],
         ),
