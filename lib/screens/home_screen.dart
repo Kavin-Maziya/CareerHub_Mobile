@@ -55,6 +55,12 @@ class HomeScreen extends StatelessWidget {
   // Visual-only filter chips
   static const List<String> _filters = ['All', 'Remote', 'Full-Time'];
 
+  // Shared by both the list and the grid, so there's only one place
+  // that builds a card from an index — no duplicated itemBuilder logic.
+  Widget _buildCard(BuildContext context, int index) {
+    return JobCard(job: _jobs[index]);
+  }
+
  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -89,11 +95,33 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
+          // Only the scrollable content (list or grid) sits inside Expanded + LayoutBuilder
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: _jobs.length,
-              itemBuilder: (context, index) => JobCard(job: _jobs[index]),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 600;
+
+                if (isWide) {
+                  return GridView.builder(
+                    padding: const EdgeInsets.all(8),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      childAspectRatio: 1.2,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 8,
+                    ),
+                    itemCount: _jobs.length,
+                    itemBuilder: _buildCard,
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: _jobs.length,
+                  itemBuilder: _buildCard,
+                );
+              },
             ),
           ),
         ],
