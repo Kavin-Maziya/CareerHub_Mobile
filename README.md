@@ -3,29 +3,14 @@
 CareerHub is a job listing and application platform.
 
 ---
-
 # Assignment 1.2 — The Responsive List & Adaptive Theme
  
 ## Question 1 — The constraint your current layout depends on
  
-- The `Scaffold.body` gives its child a **bounded** height constraint which is the
-screen height minus the app bar and system insets. A `Column`, however,
-does not pass that bound down to its non-flexible children along the main
-axis — instead, each child is given a **loose but unbounded maximum
-height** (`0 to infinity`) unless it's wrapped in `Expanded` or
-`Flexible`. This is fine for widgets with intrinsic size (like the
-horizontal chip row), but `ListView.builder` is a scrolling viewport with
-no intrinsic size — it always tries to expand to fill all available space
-along its scroll axis. When `Column` offers it "up to infinity,"
-`ListView` takes it, and Flutter throws `RenderBox was not laid out:
-vertical viewport was given unbounded height`.
- 
-**The fix:** wrap `ListView.builder` in **`Expanded`**. `Expanded` tells
-the `Column` to first lay out its other children (the chip row) normally,
-then give the `ListView.builder` exactly the *remaining* bounded space.
-This is constraints-flow-down in action: `Scaffold` bounds `Column`,
-`Column` can't pass that bound through automatically, and `Expanded` is
-the mechanism that reintroduces the bound for the one child that needs it.
+- The `Scaffold.body` passes a **bounded** height constraint down, but `Column`
+does not forward that bound to its children and each child gets a loose and **unbounded** height (`0 to infinity`) unless wrapped in `Expanded` or `Flexible`. The chip row is fine with that, since it has intrinsic size, but `ListView.builder` has no intrinsic size and always tries to expand in order to fill the space it's offered given "up to infinity," and Flutter throws `RenderBox was not laid out: vertical viewport was given unbounded height`. 
+
+- **The fix:** We should wrap `ListView.builder` in **`Expanded`**, which reintroduces a bound by giving it exactly the space left over after the `Column`'s other children are laid out.
  
 ## Question 2 — The grid cell problem
  
@@ -40,45 +25,28 @@ the mechanism that reintroduces the bound for the one child that needs it.
 | Status chip | Required |
 | Closing date row | **Conditional** — only when `closingDate != null` |
  
-**Minimum height** (no closing date row): ~120px — title, company,
-location/type row, salary row, plus card padding/margins.
+**Minimum height** (no closing date row): ~120px — title, company, location/type row, salary row, plus card padding/margins.
  
-**Maximum height** (closing date present): ~146px — adds the closing date
-row plus its spacing.
+**Maximum height** (closing date present): ~146px — adds the closing date row plus its spacing.
  
 ### 2b. childAspectRatio derivation
  
-At a 390px phone width in a 2-column grid, with `crossAxisSpacing: 8` and
-`padding: EdgeInsets.all(8)` on both sides:
+- At a 390px phone width in a 2-column grid, with `crossAxisSpacing: 8` and `padding: EdgeInsets.all(8)` on both sides:
  
 ```
 cell width = (390 - (2 × 8 padding) - 8 spacing) / 2 = 366 / 2 = 183px
 ```
  
-Using the **maximum** height estimate (146px) rather than the minimum —
-deliberately, see 2c — gives:
- 
-```
-childAspectRatio = width / height = 183 / 146 ≈ 1.25
-```
+- Using the **maximum** height estimate (146px) rather than the minimum — deliberately, see 
  
 **Chosen value: `1.2`** (rounded slightly down from 1.25 for a small
 safety margin).
  
 ### 2c. What happens with a mismatched estimate
  
-If the aspect ratio had instead been derived from the **minimum** height
-(120px), a fully populated card forced into that shorter cell would
-produce a classic Flutter render overflow — the yellow-and-black striped
-"bottom overflowed by N pixels" warning, with the closing date row (and
-possibly part of the salary row) clipped or invisible. This is not
-acceptable — it's visually broken and looks like a bug to any user.
+- If the aspect ratio had been derived from the **minimum** height (120px), a fully populated card forced into that shorter cell would produce a classic Flutter render overflow "bottom overflowed by N pixels" warning, with the closing date row (and possibly part of the salary row) cut from the main content. This is not acceptable because it's visually broken and looks like a bug to any user.
  
-By basing the ratio on the **maximum** height instead, the trade-off
-flips: a minimal card (no closing date) now has a little unused
-whitespace at the bottom of its cell. This **is** acceptable — empty
-space reads as normal spacing, while overflow reads as broken software.
-Whitespace is the safe failure mode; clipping is not.
+- By basing the ratio on the **maximum** height instead, the trade-off flips: a minimal card (no closing date) now has a little unused whitespace at the bottom of its cell. This **is** acceptable because empty space reads as normal spacing, while overflow reads as broken software.
  
 ## Question 3 — Dark mode breakage audit
  
@@ -94,15 +62,9 @@ Whitespace is the safe failure mode; clipping is not.
 | Closed chip background | Theme-referenced | `colorScheme.errorContainer` |
 | Closed chip text | Theme-referenced | `colorScheme.onErrorContainer` |
  
-**Zero hardcoded colours found.** In Assignment 1.1, every colour
-decision was routed through `Theme.of(context).colorScheme` or
-`Theme.of(context).textTheme` from the start — the open/closed
-distinction specifically used `primaryContainer`/`errorContainer` rather
-than a literal `Colors.green`/`Colors.red`, because those roles carry
-semantic meaning in the M3 system (a "positive/confirming state" vs. an
-"error/negative state") rather than being chosen for their literal shade.
-This means Part 3b (removing hardcoded colours) requires no changes — the
-existing widget is already dark-mode-safe by construction.
+- **No hardcoded colours.** In Assignment 1.1, every colour decision was routed through `Theme.of(context).colorScheme` or `Theme.of(context).textTheme` from the start and the open/closed distinction specifically used `primaryContainer`/`errorContainer` rather than a literal `Colors.green`/`Colors.red`, because those roles carry semantic meaning in the M3 system (a "positive/confirming state" vs. an "error/negative state") rather than being chosen for their literal shade.
+
+- This means there were no changes done on Part 3b (removing hardcoded colours) the existing widget is already dark-mode-safe by construction.
  
 ## Question 4 — The extraction decision
  
@@ -111,28 +73,98 @@ existing widget is already dark-mode-safe by construction.
  
 Applying the three criteria:
  
-1. **Single, nameable responsibility** — ✅ "Displays job open/closed
+1. **Single, nameable responsibility** — "Displays job open/closed
    status." Five words, one job.
-2. **Rendered in more than one place** — ✅ Beyond `JobCard`, this is
+2. **Rendered in more than one place** — Beyond `JobCard`, this is
    very likely to reappear on an employer's listing-management
    dashboard, an application-tracking view, and possibly a compact
    list-row variant later in the course — anywhere a job's open/closed
    state needs a quick visual signal.
-3. **Testable in isolation** — ✅ It depends only on a single
+3. **Testable in isolation** — It depends only on a single
    `bool isOpen` parameter, not on `Job` or any parent widget state, so
    it can be widget-tested completely independently of `JobCard`.
-**All three criteria are satisfied**, making this an unusually clear-cut
-extraction.
- 
-**Cost of not extracting:** If left inline, testing the status-colour
-logic would require standing up the entire `JobCard` (and by extension a
-full `Job` instance) just to verify a boolean-to-colour mapping —
-unnecessary test setup for what should be a trivial, isolated check. It
-would also invite duplication: the next time a status indicator is
-needed elsewhere in CareerHub, a developer would either copy-paste the
-private `_StatusChip` logic (risking the two implementations silently
-drifting apart over time) or rebuild it from scratch.
 
+**All three criteria are met**
+ 
+**Cost of not extracting:** If left inline, testing the status-colour logic would require standing up the entire `JobCard` (and by extension a full `Job` instance) just to verify a boolean-to-colour mapping which is an unnecessary test setup for what should be an isolated check. It would also invite duplication: the next time a status indicator is needed elsewhere in the CareerHub App, a developer would either copy-paste the private `_StatusChip` logic (risking the two implementations silently drifting apart over time) or rebuild it from scratch.
+ 
+---
+ 
+## Part 2 verification (ListView.builder migration)
+ 
+- ✅ Jobs list is `List<Job>`, defined as `static final` at the class
+  level — not recreated on every rebuild
+- ✅ `ListView.builder` used with `itemCount`/`itemBuilder`, driven by the
+  jobs list rather than hardcoded widgets
+- ✅ Pinned horizontal filter chip row ("All", "Remote", "Full-Time")
+  added above the list, visual only — no filtering logic yet
+- ✅ `ListView.builder` wrapped in `Expanded` per the Question 1 fix — no
+  crash, no unbounded height error
+- ✅ All four job variants (fully populated, no salary, closed, remote)
+  present and rendering correctly
+## Part 3 verification (Adaptive theming)
+ 
+- ✅ `darkTheme` added using the same seed colour with
+  `brightness: Brightness.dark`
+- ✅ `themeMode: ThemeMode.system` set — app follows the OS-level setting
+- ✅ Zero hardcoded colours found or needed changing, per the Question 3
+  audit — all colours were already `colorScheme`/`textTheme` references
+  from Assignment 1.1
+- ✅ Dark mode and light mode both confirmed manually in the browser, with
+  Open and Closed badges clearly readable in both
+**Dark mode:**
+ 
+![CareerHub dark mode — Open and Closed badges visible](assets\images\dark-mode-screenshot.png)
+ 
+**Light mode:**
+ 
+![CareerHub light mode — Open and Closed badges visible](assets\images\light-mode-screenshot.png)
+ 
+Both screenshots show the same job set, including the "Data Analyst
+Intern" (Closed) card and multiple "Open" cards, confirming the
+`primaryContainer`/`errorContainer` badge colours and `colorScheme`-based
+text/background colours all adapt correctly between modes with no
+jarring hardcoded values.
+ 
+## Part 4 verification (LayoutBuilder responsive layout)
+ 
+- ✅ `LayoutBuilder` switches to a two-column `GridView.builder` at
+  width ≥ 600px, and stays on the single-column `ListView.builder` below
+  that
+- ✅ Both layouts share the same `_buildCard(context, index)` method — no
+  duplicated `itemBuilder` logic
+- ✅ `childAspectRatio: 1.2` applied, matching the Question 2 derivation
+- ✅ `crossAxisSpacing: 8`, `mainAxisSpacing: 8`, and `padding: 8` applied
+  to the grid delegate
+- ✅ Filter chip row remains pinned above both layouts
+- ✅ All four job variants, including the closed and remote jobs, render
+  correctly in the grid with no overflow
+**Wide layout (grid):**
+ 
+![CareerHub two-column grid at width >= 600px](assets\images\grid-layout-screenshot.png)
+ 
+**Narrow layout (list):**
+ 
+![CareerHub single-column list at width < 600px](assets\images\list-layout-screenshot.png)
+ 
+ 
+## Part 5 verification (Widget extraction)
+ 
+- ✅ `JobStatusBadge` extracted to `lib/widgets/job_status_badge.dart`
+- ✅ `StatelessWidget`, const-constructible
+- ✅ Accepts only `bool isOpen` — not the full `Job` object
+- ✅ Every colour is a `colorScheme` reference
+  (`primaryContainer`/`errorContainer`,
+  `onPrimaryContainer`/`onErrorContainer`)
+- ✅ `JobCard` updated to use `JobStatusBadge` in place of the previous
+  inline `_StatusChip` — no duplicated code
+- ✅ No business logic in the extracted widget — purely presentational
+- ✅ Confirmed via the Flutter Outline panel that `JobStatusBadge` appears
+  as a named node in `JobCard`'s widget tree, not folded into an
+  anonymous subtree
+**Criteria met (from Question 4):** all three — single, nameable
+responsibility; likely reuse across future employer/dashboard views; and
+isolated testability independent of `Job` or `JobCard` state.
 
 ---
 
