@@ -1,4 +1,3 @@
-
 import 'package:careerhub_mobile/widgets/job_status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:careerhub_mobile/models/job.dart';
@@ -30,12 +29,11 @@ class JobCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                _StatusChip(isOpen: job.canApply),
+                JobStatusBadge(isOpen: job.canApply), // now using the extracted widget
               ],
             ),
             const SizedBox(height: 4),
 
-            // Company name uses bodyMedium with onSurfaceVariant colour.
             Text(
               job.company,
               style: theme.textTheme.bodyMedium?.copyWith(
@@ -44,7 +42,6 @@ class JobCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
 
-            // Location and employment type use bodySmall.
             Row(
               children: [
                 Icon(Icons.location_on_outlined,
@@ -58,9 +55,8 @@ class JobCard extends StatelessWidget {
                 Text(job.employmentType, style: theme.textTheme.bodySmall),
               ],
             ),
-
             const SizedBox(height: 8),
-            // Salary uses bodyMedium.
+
             Text(
               job.displaySalary,
               style: theme.textTheme.bodyMedium?.copyWith(
@@ -70,10 +66,21 @@ class JobCard extends StatelessWidget {
             ),
 
             // collection-if: only rendered when closingDate is present.
-            // Absent means no row at all — no "Closes: " label, no gap.
             if (job.closingDate != null) ...[
               const SizedBox(height: 6),
-             JobStatusBadge(isOpen: job.canApply), // extracted widget, not inline
+              Row(
+                children: [
+                  Icon(Icons.event_outlined,
+                      size: 16, color: theme.colorScheme.onSurfaceVariant),
+                  const SizedBox(width: 4),
+                 Text(
+        job.canApply
+            ? 'Closes: ${_formatDate(job.closingDate!)}'
+            : 'Closed on: ${_formatDate(job.closingDate!)}',
+        style: theme.textTheme.bodySmall,
+      ),
+                ],
+              ),
             ],
           ],
         ),
@@ -85,34 +92,33 @@ class JobCard extends StatelessWidget {
     return '${date.day}/${date.month}/${date.year}';
   }
 }
+// // Extracted so the status visual logic lives in one place.
+// class _StatusChip extends StatelessWidget {
+//   final bool isOpen;
 
-// Extracted so the status visual logic lives in one place.
-class _StatusChip extends StatelessWidget {
-  final bool isOpen;
+//   const _StatusChip({required this.isOpen});
 
-  const _StatusChip({required this.isOpen});
+//   @override
+//   Widget build(BuildContext context) {
+//     final theme = Theme.of(context);
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: isOpen
-            ? theme.colorScheme.primaryContainer
-            : theme.colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        isOpen ? 'Open' : 'Closed',
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: isOpen
-              ? theme.colorScheme.onPrimaryContainer
-              : theme.colorScheme.onErrorContainer,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-}
+//     return Container(
+//       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+//       decoration: BoxDecoration(
+//         color: isOpen
+//             ? theme.colorScheme.primaryContainer
+//             : theme.colorScheme.errorContainer,
+//         borderRadius: BorderRadius.circular(12),
+//       ),
+//       child: Text(
+//         isOpen ? 'Open' : 'Closed',
+//         style: theme.textTheme.labelSmall?.copyWith(
+//           color: isOpen
+//               ? theme.colorScheme.onPrimaryContainer
+//               : theme.colorScheme.onErrorContainer,
+//           fontWeight: FontWeight.bold,
+//         ),
+//       ),
+//     );
+//   }
+// }
