@@ -1,78 +1,42 @@
-import 'package:careerhub_mobile/models/job.dart';
-import 'package:careerhub_mobile/widgets/job_card.dart';
-import 'package:flutter/material.dart';
 
-class HomeScreen extends StatelessWidget {
+import 'package:careerhub_mobile/models/job.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:careerhub_mobile/providers/jobs_provider.dart';
+import 'package:careerhub_mobile/widgets/job_card.dart';
+
+
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
-  static final List<Job> _jobs = [
-
-    //Job 1 - Fully populated, open job.
-    Job(
-      title: 'Senior Frontend Software Engineer',
-      company: 'TechCorp Cape Town',
-      location: 'Cape Town',
-      description: 'We are looking for a talented Senior Frontend Engineer...',
-      employmentType: 'Full-Time',
-      isOpen: true,
-      salary: 37500,
-      closingDate: DateTime(2026, 7, 24),
-    ),
-
-    // Job 2 - Open job, no salary disclosed, no closing date.
-    Job(
-      title: 'UX/Web Designer',
-      company: 'DesignHouse Sandton',
-      location: 'Sandton',
-      description: 'We are looking for a creative UX/Web Designer...',
-      employmentType: 'Contract',
-      isOpen: true,
-    ),
-
-    // Job 3 - Closed job via named constructor.
-    Job.closed(
-      title: 'Data Analyst Intern',
-      company: 'DataWorks Pretoria',
-      location: 'Pretoria/Hybrid',
-      description: 'We are looking for a Data Analyst Intern...',
-      employmentType: 'Internship',
-      salary: 18500,
-      closingDate: DateTime(2026, 6, 19),
-    ),
-
-    // Job 4 - Remote job via named constructor.
-    Job.remote(
-      title: 'Part-Time Content Writer/Promoter',
-      company: 'MediaCo',
-      description: 'We are looking for a Content Writer...',
-      employmentType: 'Part-Time',
-      isOpen: true,
-      salary: 15000,
-      closingDate: DateTime(2026, 7, 24),
-    ),
-  ];
-
-  // Visual-only filter chips
   static const List<String> _filters = ['All', 'Remote', 'Full-Time'];
 
-  // Shared by both the list and the grid, so there's only one place
-  // that builds a card from an index — no duplicated itemBuilder logic.
-  Widget _buildCard(BuildContext context, int index) {
-    return JobCard(job: _jobs[index]);
+  // Shared by both the list and the grid -- takes the already-filtered
+  // jobs list directly, since the data source is no longer a field on
+  // this widget.
+  Widget _buildCard(BuildContext context, List<Job> jobs, int index) {
+    return JobCard(job: jobs[index]);
   }
 
- @override
-  Widget build(BuildContext context) {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+
+    // ref.watch here -- this build() must rebuild whenever the filtered
+    // jobs value changes, whether that's a filter tap or the underlying
+    // job list finishing its load.
+    final filteredJobsAsync = ref.watch(filteredJobsProvider);
+    final selectedFilter = ref.watch(selectedFilterProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('CareerHub'),
         backgroundColor: theme.colorScheme.primaryContainer,
-      ), 
-
-       body: Column(
+      ),
+      body: Column(
         children: [
+          // Filter chip row stays pinned above the list or grid,
+          // no matter which AsyncValue state is showing below it.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: SingleChildScrollView(
@@ -84,9 +48,15 @@ class HomeScreen extends StatelessWidget {
                         padding: const EdgeInsets.only(right: 8),
                         child: ChoiceChip(
                           label: Text(label),
-                          selected: label == 'All',
+                          // Selection is driven by the provider value,
+                          // not local widget state.
+                          selected: label == selectedFilter,
                           onSelected: (_) {
-                            // Filtering logic upcoming
+                            // ref.read here -- this is a callback, not
+                            // build(). We're updating state once in
+                            // response to a tap, not subscribing to it.
+                            ref.read(selectedFilterProvider.notifier).state =
+                                label;
                           },
                         ),
                       ),
@@ -95,31 +65,91 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
-          // Only the scrollable content (list or grid) sits inside Expanded + LayoutBuilder
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final isWide = constraints.maxWidth >= 600;
 
-                if (isWide) {
-                  return GridView.builder(
-                    padding: const EdgeInsets.all(8),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      childAspectRatio: 1.2,
-                      crossAxisSpacing: 8,
-                      mainAxisSpacing: 8,
+          Expanded(
+            child: filteredJobsAsync.when(
+              loading: () => const Center(
+                child: CircularProgressIndicator(),
+              ),
+              error: (error, stackTrace) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 48,
+                        color: theme.colorScheme.error,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Something went wrong loading jobs.',
+                        style: theme.textTheme.bodyMedium,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: () => ref.invalidate(jobsProvider),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              data: (jobs) {
+                // An empty filtered result with message, not a blank body.
+                if (jobs.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.search_off,
+                            size: 48,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'No jobs match this filter.',
+                            style: theme.textTheme.bodyMedium,
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
                     ),
-                    itemCount: _jobs.length,
-                    itemBuilder: _buildCard,
                   );
                 }
 
-                return ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: _jobs.length,
-                  itemBuilder: _buildCard,
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isWide = constraints.maxWidth >= 600;
+
+                    if (isWide) {
+                      return GridView.builder(
+                        padding: const EdgeInsets.all(8),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: 1.2,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                        ),
+                        itemCount: jobs.length,
+                        itemBuilder: (context, index) =>
+                            _buildCard(context, jobs, index),
+                      );
+                    }
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: jobs.length,
+                      itemBuilder: (context, index) =>
+                          _buildCard(context, jobs, index),
+                    );
+                  },
                 );
               },
             ),
