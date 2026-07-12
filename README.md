@@ -1,6 +1,66 @@
 # CareerHub Mobile
 
 CareerHub is a job listing and application platform.
+---
+
+# Assignment 1.3 — Live State & Reactive Filters
+ 
+## Part 1: Written decisions
+### Question 1 — ref.watch versus ref.read
+ 
+The `ref.watch` inside `build()` subscribes the widget to a provider's node in the reactive dependency graph: whenever that provider's value changes, Riverpod
+automatically schedules a rebuild for every widget watching it. That's exactly what `build()` needs, since a widget's job is to stay in sync with the graph. Using `ref.watch` inside a callback like `onSelected` is inappropriate because callbacks aren't part of the build lifecycle. A subscription created there has no `build()` to reattach to on the next frame. `ref.read` reaches into the graph once, grabs the current value, and creates no subscription — perfect for "the user just
+tapped this chip, read the notifier and tell it to update," but insufficient inside `build()` because a widget that only ever reads once renders correctly on its first build and then never updates again. If these were reversed, the user would see two different bugs: with `ref.read` in `build()`, the job list would render once and then freeze — tapping filter chips would silently update the provider but the visible list would never change, since the widget stopped listening after its first render. With `ref.watch` in a callback, it's more subtly
+wrong — it blurs the distinction between "this widget needs to react to
+state" and "this event handler needs to act on state once," inviting
+bugs as the provider graph grows.
+ 
+### Question 2 — Choosing the right provider for each piece of state
+ 
+| Data | Provider type | Justification |
+|---|---|---|
+| Full job list (async, simulated network delay) | `AsyncNotifierProvider<JobsNotifier, List<Job>>` | The data requires actual async fetch logic (a `build()` method with a simulated delay) rather than a one-shot read; `AsyncNotifier` gives `AsyncValue`'s loading/data/error states for free. |
+| Selected filter chip label | `StateProvider<String>` | It's a single, simple, directly-settable piece of UI state (which chip is selected) with no async component. |
+| Filtered list (derived from the two above) | `Provider<AsyncValue<List<Job>>>` | It's pure computed state that should never be set directly, only recalculated automatically whenever either dependency changes; a plain `Provider` enforces that by exposing no way to write to it. |
+ 
+**The manual-sync bug:** Storing the filtered list in its own
+`StateProvider<List<Job>>` and updating it manually introduces a
+**stale-state (synchronization) bug** — the derived value can silently
+drift out of sync with its sources because nothing forces it to
+recompute automatically. A concrete CareerHub scenario: the user taps
+"Remote," the filtered `StateProvider` is set correctly, but then the
+underlying job list reloads (e.g. after a retry from an error state)
+with a different set of jobs — if the filtered `StateProvider` isn't
+manually re-triggered at that exact moment, the user keeps seeing the
+*old* filtered snapshot, filtered against data that no longer exists.
+ 
+### Question 3 — AsyncValue and your UI contract
+ 
+- **loading** → centered `CircularProgressIndicator`, so the user gets clear feedback that something is happening rather than assuming the app is frozen.
+- **error** → an icon, a short message, and a retry button, so the user understands something went wrong and has an immediate way to try again without restarting the app.
+- **data** → pass the list to the existing `LayoutBuilder` from Assignment 1.2, since the UI's only job is to display what successfully loaded.
+**The fourth condition:** within the `data` case, you must additionally check whether the **filtered list is empty**. If forgotten, a user selecting a filter with no matching jobs sees a completely blank body — reading as a bug or a frozen app rather than "there's nothing here." The fix: check `if (filteredJobs.isEmpty)` inside the data branch and render
+an explicit "No jobs match this filter" message instead of handing an empty list straight to the grid/list builder.
+ 
+### Question 4 — What your test is about to break and why
+ 
+**Failure mode 1 — architecture change to `ConsumerWidget`:**
+`HomeScreen` now needs a `WidgetRef`, which only exists inside a
+`ProviderScope`. The current test pumps the app with no `ProviderScope`
+wrapping it, so it throws immediately before rendering anything. **Fix:**
+wrap the pumped widget in `ProviderScope(child: CareerHubApp())` in the
+test.
+ 
+**Failure mode 2 — async loading:** `pumpWidget` only pumps a single
+frame, and since the job list now loads via `AsyncNotifier` with a
+simulated delay, the frame right after `pumpWidget` is still in the
+**loading** state — the job cards don't exist yet. Asserting on job
+title text immediately will fail, not because the app is broken, but
+because the test is checking before the data arrives. **Fix:** call
+`await tester.pump(const Duration(seconds: 2))` to advance the fake
+clock past the simulated delay, followed by `await tester.pumpAndSettle()`,
+before asserting on job card content.
+ 
 
 ---
 # Assignment 1.2 — The Responsive List & Adaptive Theme
