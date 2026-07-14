@@ -1,10 +1,9 @@
-
 import 'package:careerhub_mobile/models/job.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:careerhub_mobile/providers/jobs_provider.dart';
+import 'package:careerhub_mobile/providers/jobs_notifier.dart';
 import 'package:careerhub_mobile/widgets/job_card.dart';
-
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -12,8 +11,8 @@ class HomeScreen extends ConsumerWidget {
   static const List<String> _filters = ['All', 'Remote', 'Full-Time'];
 
   // Shared by both the list and the grid -- takes the already-filtered
-  // jobs list directly, since the data source is no longer a field on
-  // this widget.
+  // and sorted jobs list directly, since the data source is no longer
+  // a field on this widget.
   Widget _buildCard(BuildContext context, List<Job> jobs, int index) {
     return JobCard(job: jobs[index]);
   }
@@ -23,10 +22,11 @@ class HomeScreen extends ConsumerWidget {
     final theme = Theme.of(context);
 
     // ref.watch here -- this build() must rebuild whenever the filtered
-    // jobs value changes, whether that's a filter tap or the underlying
-    // job list finishing its load.
-    final filteredJobsAsync = ref.watch(filteredJobsProvider);
+    // and sorted jobs value changes, whether that's a filter tap, a
+    // sort tap, or the underlying job list finishing its load.
+    final jobsAsync = ref.watch(sortedJobsProvider);
     final selectedFilter = ref.watch(selectedFilterProvider);
+    final sortOrder = ref.watch(sortOrderProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -66,8 +66,34 @@ class HomeScreen extends ConsumerWidget {
             ),
           ),
 
+          // Sort toggle row, pinned above the list/grid alongside the
+          // filter chips.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Text('Sort:', style: theme.textTheme.bodySmall),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('A–Z'),
+                  selected: sortOrder == 'A-Z',
+                  onSelected: (_) =>
+                      ref.read(sortOrderProvider.notifier).state = 'A-Z',
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('Z–A'),
+                  selected: sortOrder == 'Z-A',
+                  onSelected: (_) =>
+                      ref.read(sortOrderProvider.notifier).state = 'Z-A',
+                ),
+              ],
+            ),
+          ),
+
           Expanded(
-            child: filteredJobsAsync.when(
+            child: jobsAsync.when(
               loading: () => const Center(
                 child: CircularProgressIndicator(),
               ),
@@ -84,7 +110,7 @@ class HomeScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'Something went wrong loading jobs.',
+                        'Something went wrong when loading jobs.',
                         style: theme.textTheme.bodyMedium,
                         textAlign: TextAlign.center,
                       ),

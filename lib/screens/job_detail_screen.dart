@@ -1,10 +1,10 @@
-import 'package:careerhub_mobile/providers/jobs_provider.dart';
+import 'package:careerhub_mobile/providers/jobs_notifier.dart';
 import 'package:careerhub_mobile/widgets/job_status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class JobDetailScreen extends ConsumerWidget {
-  final int jobId;
+  final String jobId; // changed from int -- Job.id is now a String (Guid)
 
   const JobDetailScreen({super.key, required this.jobId});
 

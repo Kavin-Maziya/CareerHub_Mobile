@@ -1,16 +1,17 @@
-// Core domain model for a CareerHub job listing.
+
+import 'package:careerhub_mobile/data/job_dto.dart' as dto;
 
 class Job {
-  // Required fields always present for a valid job listing.
-   final int id; // stable identifier
+  final String id; // changed from int -- API uses Guid, serialized as String
   final String title;
   final String company;
   final String location;
   final String description;
   final String employmentType;
   final bool isOpen;
-  // Nullable fields
-  final double? salary;
+  final String? salaryDisplay; // renamed from `salary` -- API already
+                                // formats this server-side; the model no
+                                // longer stores a raw number
   final DateTime? closingDate;
 
   Job({
@@ -21,11 +22,10 @@ class Job {
     required this.description,
     required this.employmentType,
     required this.isOpen,
-    this.salary,
+    this.salaryDisplay,
     this.closingDate,
   });
 
-  // Named constructor: represents a job that is closed,
   Job.closed({
     required this.id,
     required this.title,
@@ -33,12 +33,10 @@ class Job {
     required this.location,
     required this.description,
     required this.employmentType,
-    this.salary,
+    this.salaryDisplay,
     this.closingDate,
   }) : isOpen = false;
 
-  // Named constructor: represents a remote listing. Pre-fills location
-  // consistently so remote jobs aren't scattered across variant strings
   Job.remote({
     required this.id,
     required this.title,
@@ -46,26 +44,38 @@ class Job {
     required this.description,
     required this.employmentType,
     required this.isOpen,
-    this.salary,
+    this.salaryDisplay,
     this.closingDate,
   }) : location = 'Remote';
 
-//returns true only if the job is in a state a JobSeeker can apply to  
+  // Maps the API's JobDto to the UI's Job. This factory is the
+  // translation layer between the two naming conventions -- one side
+  // uses the API's names (CompanyName, IsActive, SalaryDisplay), the
+  // other uses the Flutter UI's names (company, isOpen, salaryDisplay).
+  factory Job.fromDto(dto.JobDto d) {
+    return Job(
+      id: d.id,
+      title: d.title,
+      company: d.companyName, // API: CompanyName -> Flutter: company
+      location: d.location,
+      description: d.description,
+      employmentType: d.employmentType,
+      isOpen: d.isActive, // API: IsActive -> Flutter: isOpen
+      // API: SalaryDisplay -> Flutter: salaryDisplay. 
+      salaryDisplay:
+          d.salaryDisplay.trim().isEmpty ? null : d.salaryDisplay,
+      closingDate: d.closingDate,
+    );
+  }
+
   bool get canApply => isOpen;
 
-  // Single source of truth for how salary is displayed. The widget layer
-  // must never touch the raw `salary` field directly — it calls this instead.
-  String get displaySalary {
-    if (salary == null) {
-      return 'Market-related';
-    }
-    return 'R${salary!.toStringAsFixed(0)} per month';
-  }
+  String get displaySalary => salaryDisplay ?? 'Market-related';
 
   @override
   String toString() {
     return 'Job(id: $id, title: $title, company: $company, location: $location, '
-        'isOpen: $isOpen, salary: ${salary ?? "confidential"}, '
+        'isOpen: $isOpen, salary: ${salaryDisplay ?? "confidential"}, '
         'closingDate: ${closingDate ?? "none"})';
   }
 }

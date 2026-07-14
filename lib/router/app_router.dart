@@ -35,7 +35,7 @@ final appRouter = GoRouter(
                   path: ':id', // resolves to the full path /jobs/:id
                   parentNavigatorKey: rootNavigatorKey,
                   builder: (context, state) {
-                    final id = int.parse(state.pathParameters['id']!);
+                    final id = state.pathParameters['id']!;
                     return JobDetailScreen(jobId: id);
                   },
                 ),
