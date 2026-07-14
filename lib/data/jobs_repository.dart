@@ -14,7 +14,7 @@ Dio dio(Ref ref) {
       baseUrl: const String.fromEnvironment(
         'API_BASE_URL',
         // Android emulator's alias for the host machine's localhost.
-        defaultValue: 'http://10.0.2.2:5247',
+        defaultValue: 'http://10.0.2.2:5059',
       ),
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
