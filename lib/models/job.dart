@@ -2,6 +2,7 @@
 
 class Job {
   // Required fields always present for a valid job listing.
+   final int id; // stable identifier
   final String title;
   final String company;
   final String location;
@@ -13,6 +14,7 @@ class Job {
   final DateTime? closingDate;
 
   Job({
+    required this.id,
     required this.title,
     required this.company,
     required this.location,
@@ -25,6 +27,7 @@ class Job {
 
   // Named constructor: represents a job that is closed,
   Job.closed({
+    required this.id,
     required this.title,
     required this.company,
     required this.location,
@@ -37,6 +40,7 @@ class Job {
   // Named constructor: represents a remote listing. Pre-fills location
   // consistently so remote jobs aren't scattered across variant strings
   Job.remote({
+    required this.id,
     required this.title,
     required this.company,
     required this.description,
@@ -60,7 +64,7 @@ class Job {
 
   @override
   String toString() {
-    return 'Job(title: $title, company: $company, location: $location, '
+    return 'Job(id: $id, title: $title, company: $company, location: $location, '
         'isOpen: $isOpen, salary: ${salary ?? "confidential"}, '
         'closingDate: ${closingDate ?? "none"})';
   }
