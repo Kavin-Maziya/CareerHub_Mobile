@@ -3,6 +3,83 @@
 CareerHub is a job listing and application platform.
 ---
 
+
+# Assignment 1.4 — Deep Navigation & Route Architecture
+ 
+## Question 1 — Route tree
+ 
+| Path | Screen | Shell status |
+|---|---|---|
+| `/jobs` | `HomeScreen` (job list, filter chips, sort toggle) | Inside shell — `NavigationBar` visible |
+| `/jobs/:id` | `JobDetailScreen` | Nested under the Jobs branch (for back-stack purposes), but rendered on the **root navigator** via `parentNavigatorKey` — full screen, `NavigationBar` hidden |
+| `/saved` | `SavedScreen` | Inside shell — `NavigationBar` visible |
+ 
+```
+StatefulShellRoute.indexedStack
+├── Branch 0 (Jobs tab)
+│   └── /jobs ──────────────► HomeScreen        [shell: visible]
+│         └── /jobs/:id ────► JobDetailScreen    [shell: hidden — full screen]
+└── Branch 1 (Saved tab)
+    └── /saved ─────────────► SavedScreen         [shell: visible]
+```
+ 
+**The job detail screen is outside the shell** as a full screen, no `NavigationBar`. The shell is the persistent frame (the two-tab bar) that stays fixed while its content swaps between branches;
+routes inside it render within that frame, while routes outside it take over the full screen via `parentNavigatorKey`, hiding the tab bar entirely. A job detail view is dense — title, company, location,
+employment type, salary, closing date, full description — and benefits from every pixel of vertical space, so keeping a persistent tab bar visible while the user reads a wall of text works against the content
+rather than for it. **Real app reference:** LinkedIn uses the same behaviour — tapping a job from the feed or search results opens a full-screen detail view with no bottom tab bar; only a back arrow returns you to the list.
+ 
+**What URL is active when the user first opens the app?** `/jobs` — the initial home screen location.
+ 
+**What URL is active when reading the detail for the third job in the list?** `/jobs/{job.id}` — `/jobs/3` if that job's stable `id` field happens to be `3`
+ 
+**What does the system back button do from the detail screen?** It pops back to `/jobs`, returning to the job list with its previous scroll position, filter selection, and sort order intact — since
+`StatefulShellRoute.indexedStack` preserves the Jobs branch's navigation stack independently of the Saved branch.
+ 
+**What if the user opened `/jobs/3` directly via a notification tap, then pressed back?** They land on `/jobs` (the job list), not the previous app or home screen. My route tree supports this because
+`/jobs/:id` is declared as a *child* of `/jobs` — GoRouter synthesizes the full parent stack for a nested path even on a direct deep-link entry, so `/jobs` exists underneath `/jobs/3` on the back stack
+automatically, with no extra logic needed.
+ 
+## Question 2 — context.go vs context.push
+ 
+| Action | Method | Justification |
+|---|---|---|
+| (a) Tap a job card → detail slides in | `context.push` | The user expects the back button to return them to exactly where they were in the list — `push` adds to the stack rather than replacing it. |
+| (b) Tap "Saved" tab | `goBranch` (the shell's tab-switching equivalent of `go`) | Switching tabs is a lateral move, not a drill-down — the user doesn't expect pressing back afterward to cycle back through every previous tab they'd visited, so it shouldn't grow the back stack. |
+| (c) "Log Out" | `context.go('/login')` | `go` replaces the current stack entirely — this is a security requirement, since a logged-out user must never be able to press back and land on an authenticated screen. |
+| (d) "Browse Similar Roles" → jobs list with a filter | See below | — |
+ 
+**The wrong choice for (d): `context.push`.** If "Browse Similar Roles" pushes a new instance of the jobs list every time it's tapped, a user browsing several job details in sequence and tapping "Browse Similar"
+from each one accumulates multiple redundant jobs-list screens on the stack. Pressing back once wouldn't return them to the job they were just viewing — it would show yet another jobs-list screen, and they'd need to
+press back several more times to actually exit, directly violating the expectation that one back press undoes one navigation action.
+ 
+## Question 3 — Why IDs in URLs, not objects or indices
+ 
+**Scenario 1 — filter chips:** Say index `0` is captured in a URL while the "Remote" filter is active — at that moment, index `0` is the remote content-writer job. If the user later clears the filter back to "All"
+without navigating away, index `0` in the unfiltered list is now the Senior Frontend Software Engineer job instead — a completely different listing now answers to the same captured index.
+ 
+**Scenario 2 — sort order (Stretch A):** With the A–Z/Z–A sort toggle, index `0` under "A–Z" sorting is whichever job's title comes alphabetically first, but index `0` under "Z–A" is the job whose title
+comes last. The same index number silently refers to two different jobs purely based on which sort button was tapped last — no filter change even required.
+ 
+**The push notification paragraph:** For a position-based URL to reliably reopen the correct job, the app's filter selection, sort order, and the underlying job list's exact contents and ordering would all need
+to be identical at the moment the notification is tapped as they were when the notification was generated — and that state would need to survive being backgrounded, force-quit, or relaunched fresh in between.
+None of that can be guaranteed: the user might switch filters between receiving and tapping the notification, the app may have been killed and relaunched with everything reset to its defaults ("All" / "A–Z"), or the
+backend's job list may have changed (a listing closed, a new one was added, shifting every subsequent position by one). A stable `id` field sidesteps all of this entirely, since it identifies the job itself
+rather than its transient position in some particular view of the data.
+ 
+## Question 4 — What the test is about to break and why
+ 
+**What changes when `MaterialApp` becomes `MaterialApp.router`:** Instead of `MaterialApp` taking a fixed `home:` widget as the root of the tree, `MaterialApp.router` delegates the entire widget tree's
+construction to a router configuration (`routerConfig: goRouter`). The tree the test inspects is no longer "whatever widget I passed in" — it's dynamically resolved by GoRouter's `RouterDelegate` based on the current
+location, meaning `HomeScreen` now sits several layers deeper in the tree (inside a `Router`, a `Navigator`, the `StatefulShellRoute`'s `IndexedStack`) rather than being the direct child of `MaterialApp`.
+ 
+**Does the test need changes to see the jobs list, given `initialLocation` is `/jobs`?** No structural changes are needed to *reach* the jobs list — GoRouter resolves `initialLocation` synchronously
+on the very first frame, so `pumpWidget` still lands directly on `HomeScreen`'s content without any extra navigation step in the test.
+The Assignment 1.3 fixes (`ProviderScope` wrap, advancing the fake clock past the async delay) still apply unchanged.
+What **does** need to change: the test must now also assert that the `NavigationBar`
+destination labels ("Jobs", "Saved") are present in the tree, since those are new text nodes that didn't exist before — and because `StatefulShellRoute.indexedStack` keeps all branches' widgets mounted
+simultaneously (that's the point of `IndexedStack` preserving state), any text that happens to appear in both the Jobs screen and the Saved screen would need its `findsNWidgets` count adjusted accordingly, even though only one branch is visually showing at a time.
+ 
+---
 # Assignment 1.3 — Live State & Reactive Filters
  
 ## Part 1: Written decisions
