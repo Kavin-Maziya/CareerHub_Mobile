@@ -4,6 +4,7 @@ import '../models/job.dart';
 
 final _allJobs = <Job>[
   Job(
+    id: 1,
     title: 'Senior Frontend Software Engineer',
     company: 'TechCorp Cape Town',
     location: 'Cape Town',
@@ -14,6 +15,7 @@ final _allJobs = <Job>[
     closingDate: DateTime(2026, 7, 24),
   ),
   Job(
+    id: 2,
     title: 'UX/Web Designer',
     company: 'DesignHouse Sandton',
     location: 'Sandton',
@@ -22,6 +24,7 @@ final _allJobs = <Job>[
     isOpen: true,
   ),
   Job.closed(
+    id: 3,
     title: 'Data Analyst Intern',
     company: 'DataWorks Pretoria',
     location: 'Pretoria/Hybrid',
@@ -31,6 +34,7 @@ final _allJobs = <Job>[
     closingDate: DateTime(2026, 6, 19),
   ),
   Job.remote(
+    id: 4,
     title: 'Part-Time Content Writer/Promoter',
     company: 'MediaCo',
     description: 'We are looking for a Content Writer...',
@@ -61,6 +65,20 @@ final jobsProvider = AsyncNotifierProvider<JobsNotifier, List<Job>>(
 // selectedFilterProvider
 // Holds the currently selected filter chip label. Default filter is 'All'.
 final selectedFilterProvider = StateProvider<String>((ref) => 'All');
+final sortOrderProvider = StateProvider<String>((ref) => 'A-Z');
+
+final sortedJobsProvider = Provider<AsyncValue<List<Job>>>((ref) {
+  final filteredAsync = ref.watch(filteredJobsProvider);
+  final sortOrder = ref.watch(sortOrderProvider);
+
+  return filteredAsync.whenData((jobs) {
+    final sorted = List<Job>.from(jobs);
+    sorted.sort((a, b) => sortOrder == 'A-Z'
+        ? a.title.compareTo(b.title)
+        : b.title.compareTo(a.title));
+    return sorted;
+  });
+});
 
 // filteredJobsProvider
 // Derived state. Watches both providers above. Recomputes automatically

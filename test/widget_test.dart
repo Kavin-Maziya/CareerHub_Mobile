@@ -51,5 +51,12 @@ void main() {
     // 'Full-Time' appears twice: once as the filter chip label, once in
     // the Senior Frontend Software Engineer card's employment-type row.
     expect(find.text('Full-Time'), findsNWidgets(2));
+
+    // NEW: NavigationBar destination labels are new text nodes in the
+    // tree that didn't exist before GoRouter's StatefulShellRoute.
+    // 'Jobs' and 'Saved' don't collide with any existing text elsewhere
+    // in the tree, so both are asserted as findsOneWidget.
+    expect(find.text('Jobs'), findsOneWidget);
+    expect(find.text('Saved'), findsOneWidget);
   });
 }
