@@ -2,6 +2,55 @@
 
 CareerHub is a job listing and application platform.
 ---
+# Assignment 2.2  Immutable Models, Dart 3 & Freezed
+
+## Question 1 — The equality problem in your running app
+- Dart's default == on a plain class compares two instances by memory address and two separately constructed Job objects with identical field values are never == to each other unless they're literally the same object in memory. When the API returns the same jobs twice (initial load, then a pull-to-refresh), the notifier constructs a brand new List<Job> from the second response, even if every field of every job is identical to the initial list before, this is a new list containing new Job instances. Under identity equality, Riverpod has no way to know the content is unchanged; it's forced to conclude the data is different, because the only thing it can compare is memory identity, and two different List<Job> instances (even wrapping equal data) are never == by default. This means every pull-to-refresh — successful or not, changed or not — is treated as a fresh and new state.
+
+- Concrete consequence in the widget layer: HomeScreen's build() calls ref.watch(sortedJobsProvider). Because the emitted AsyncValue<List<Job>> is never equal to the previous one even when the underlying jobs are unchanged, HomeScreen rebuilds in full on every refresh, and ListView.builder/GridView.builder reconstructs every single JobCard from scratch via _buildCard. If I tried to optimize this later with ref.watch(sortedJobsProvider.select((async) => async)) to skip rebuilds when nothing actually changed, select relies on == to decide whether to notify listeners and since it can never see two states as equal, select provides zero benefit, and every JobCard and any local state inside it, like a hypothetical "expanded description" toggle gets torn down and rebuilt unnecessarily on every refresh, even when the visible data is identical.
+
+- Freezed generates a real value-based ==/hashCode that compares every field.
+
+| Field | Type | Has correct built-in value equality?| 
+|----|----------|-------------------------------|
+| id | String | ✅Yes — String.== compares content |
+| title | String | ✅Yes |
+|companyString | ✅Yes |
+| location | String | ✅Yes | 
+| description | String | ✅Yes |
+| employmentTypeString | ✅Yes |
+| isOpen | bool | ✅Yes |
+| salaryDisplay | String? | ✅Yes |
+|closingDate | DateTime? | ✅Yes — DateTime already overrides == to compare the represented instant, not object identity |
+
+- No field requires extra work. Every field on Job is either a primitive or DateTime which already has correct value equality built into Dart's core library, so Freezed's generated == will be fully correct the moment it's applied since there's no nested custom object, List, or Map field on Job that would need special handling
+
+## Question 2 — Which models get json_serializable and which do not
+
+- JobDto is responsible for reading raw JSON from the API response; Job is the domain model the UI consumes.
+- **Why json_serializable on Job would break at the boundary:** json_serializable's default behavior matches a JSON key to a Dart field only when their names are identical. The API's JSON keys are companyName and isActive, but Job's fields are named company and isOpen — deliberately renamed during the DTO-to-model mapping in Assignment 2.1 for UI readability. If json_serializable were attached directly to Job, it would look for JSON keys literally named company and isOpen in the response and find nothing (since the API sends companyName/isActive), leaving those fields null or throwing a parse error — unless every mismatch were manually annotated with @JsonKey(name: '...'), which would just be re-implementing Job.fromDto's translation job in a second place, defeating the purpose of having a DTO at all.
+
+- **What the generator reads to know how to parse each field:** The generator reads the field names and declared types inside the const factory constructor of JobDto. Because JobDto was implemented to mirror the API's JSON keys one-to-one (companyName, isActive, postedAt, salaryDisplay, closingDate, applicationCount, employmentType — all matching ASP.NET Core's default camelCase JSON serialization exactly), no @JsonKey(name: ...) annotations are needed anywhere in JobDto since every field name already matches its corresponding JSON key, so json_serializable's default name-matching handles every field automatically.
+- Job.fromDto's continued role: It remains the single place where API-shaped names (companyName, isActive) get translated into UI-shaped names (company, isOpen), and where fields the API sends but the UI doesn't currently use (postedAt, applicationCount) are simply not carried forward. If the API renames a field tomorrow, two files change: job_dto.dart and job.dart's fromDto method we should update the one mapping line that references the old DTO field name. If fromDto didn't exist and Job parsed JSON directly, the same rename would force Job itself to either take on the API's exact naming or scatter @JsonKey annotations directly onto the domain model — coupling the class every widget in the app depends on (JobCard, JobDetailScreen, every provider) directly to the API's JSON shape, exactly the risk the DTO layer exists to prevent.
+
+## Question 3 — Freezed and custom behaviour: the private constructor
+
+- **What const Job._() does:** Freezed's code generation produces a hidden implementation class (_Job) that holds the actual field storage and mixes in _$Job (the generated ==, hashCode, copyWith, toString). The abstract Job class I write becomes a shell whose only real constructor is Job._() — a private, empty, generative constructor that _Job calls into via super._(). Declaring Job._() is what gives you a place to add your own members — getters like canApply and displaySalary — directly on the Job class body, because those need an actual constructor to exist on the class for Dart to allow additional non-factory members at all. Without declaring it, trying to add an instance method or getter to a @freezed class produces a build_runner generation error, since Freezed has no accessible constructor path to attach your custom code to the class hierarchy it's generating.
+
+- **What must change about fromDto:** Freezed treats every factory constructor on an annotated class as a potential union-type variant — not just ones using the = _ClassName redirect syntax, but any factory declaration at all, since Freezed's generator scans all constructors named factory to build its metadata. factory Job.fromDto(JobDto dto) { ... } currently exists as exactly that: a factory constructor with a body. Left as-is after adding @freezed, this collides with Freezed's union-variant detection and produces generator errors or unintended sealed-class behavior. The fix: convert it from a factory constructor into a plain static Job fromDto(JobDto dto) { ... } method — identical body, no longer a constructor at all. The call site remains syntactically identical (Job.fromDto(dto) in jobs_repository.dart doesn't change) because Dart's dot-syntax for calling a named constructor (ClassName.name(args)) and calling a static method (ClassName.name(args)) are indistinguishable at the call site — only the declaration changes, not how callers invoke it.
+
+- **A related wrinkle worth flagging now:** Job.closed and Job.remote are currently plain named generative constructors (not factories) that directly set fields via initializer lists (e.g. : isOpen = false). Under Freezed's abstract-class-plus-hidden-implementation pattern, Job's fields become abstract getters implemented only by the generated _Job class — there's no way for a second generative constructor on the abstract Job class to assign to those fields directly, since they aren't real settable fields on Job itself anymore. This means Job.closed and Job.remote cannot survive the Freezed conversion in their current form — they'll need to become static helper methods too (mirroring the fromDto fix), each simply calling the primary Job(...) factory with the appropriate defaults filled in. I'll flag this explicitly again when we get to Part 5's implementation, but wanted it on record now since it's a direct consequence of this question's reasoning, not a separate surprise.
+
+## Question 4 — Sealed classes and the compile-time guarantee
+
+- **What sealed enforces:** All direct subclasses of a sealed class must be declared within the same file (technically, the same library) as the sealed class itself. This file-location rule is what makes exhaustiveness checking possible: since Dart's compiler can see every subclass of ApiResult<T> at the point the sealed class is declared — no other file, anywhere in the project or in a consuming package, can add a third subclass — the compiler has a complete, closed picture of every possible shape ApiResult<T> can take.
+
+- **What exhaustiveness checking means, and what happens if you omit a case:** When you write a switch expression over a value of a sealed type, the compiler cross-checks your case/pattern arms against that complete, closed set of subclasses. If you handle only Success and omit Failure, the compiler produces a compile-time error (non_exhaustive_switch_expression) — the code simply does not compile until every subclass is handled (or you add an explicit wildcard _ arm, which you'd have to do deliberately, not by accident). Contrast with abstract class: if ApiResult<T> were merely abstract, any file anywhere in the codebase (or in a package that imports it) could define a third subclass the compiler has no visibility into at the switch's declaration site — so the compiler could never guarantee you've covered every case, and a missing arm would either require a mandatory default/wildcard branch or silently fail at runtime rather than being caught while writing the code.
+
+- **Why Failure<T> carries T even though it never stores a value of that type:** ApiResult<T> is generic, and for Failure<T> extends ApiResult<T> to type-check as a proper subtype, Failure must itself be parameterized by the same T — otherwise it would be a raw, non-generic type that couldn't be treated polymorphically alongside Success<T> wherever ApiResult<T> is expected. Concretely, a method declared to return Future<ApiResult<List<Job>>> needs to be able to return either Success<List<Job>> or Failure<List<Job>> interchangeably — if Failure weren't parameterized by T, returning it from that method would be a type mismatch, even though the failure case has no actual List<Job> data to carry.
+
+
+---
 
 # Assignment 2.1 — HTTP, Repositories & Code Generation
  
