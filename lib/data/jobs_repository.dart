@@ -1,9 +1,10 @@
 // lib/data/jobs_repository.dart
 
+import 'package:careerhub_mobile/models/job.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import '../models/job.dart';
 import 'job_dto.dart';
+import 'package:careerhub_mobile/data/api_result.dart';
 
 part 'jobs_repository.g.dart';
 
@@ -53,17 +54,35 @@ class JobsRepository {
   );
 }
 
-Future<List<Job>> getJobs() async {
-  final response = await _dio.get('/api/v1/jobs/all');
+Future<ApiResult<List<Job>>> getJobs() async {
+    try {
+      final response = await _dio.get('/api/v1/jobs/all');
 
-  // Named record destructuring -- binds all three parsed values to
-  // clearly named variables at the call site.
-  final (:jobs, :totalCount, :hasNextPage) =
-      _parseJobsResponse(response.data as Map<String, dynamic>);
+      final (:jobs, :totalCount, :hasNextPage) =
+          _parseJobsResponse(response.data as Map<String, dynamic>);
 
-  // totalCount and hasNextPage currently not used by getJobs() yet, but are
-  // now available for a future pull-to-refresh / pagination feature
-  // (Assignment 2.1 Stretch A) without needing to touch this parsing logic again.
-  return jobs;
-}
+      return Success(jobs);
+    } on DioException catch (e) {
+      return Failure(_messageForDioException(e), statusCode: e.response?.statusCode);
+    } catch (e) {
+      return const Failure('Something went wrong. Please try again.');
+    }
+  }
+
+  // Private method on the repository class -- maps a DioException's
+  // type to a human-readable message via a switch expression.
+  String _messageForDioException(DioException e) {
+    return switch (e.type) {
+      DioExceptionType.connectionTimeout ||
+      DioExceptionType.sendTimeout ||
+      DioExceptionType.receiveTimeout =>
+        'The connection timed out. Please check your network and try again.',
+      DioExceptionType.connectionError =>
+        'Could not connect to the server. Please check your network.',
+      DioExceptionType.badResponse =>
+        'The server responded with an error (${e.response?.statusCode ?? 'unknown'}).',
+      DioExceptionType.cancel => 'The request was cancelled.',
+      _ => 'An unexpected network error occurred. Please try again.',
+    };
+  }
 }
