@@ -39,7 +39,7 @@ class JobCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 4),
-        
+
               Text(
                 job.company,
                 style: theme.textTheme.bodyMedium?.copyWith(
@@ -47,7 +47,7 @@ class JobCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-        
+
               // Wrap instead of Row -- location and employment type flow
               // onto a second line if the card is too narrow to fit both
               // on one line, instead of overflowing or getting truncated.
@@ -59,8 +59,11 @@ class JobCard extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.location_on_outlined,
-                          size: 16, color: theme.colorScheme.onSurfaceVariant),
+                      Icon(
+                        Icons.location_on_outlined,
+                        size: 16,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                       const SizedBox(width: 4),
                       Text(job.location, style: theme.textTheme.bodySmall),
                     ],
@@ -68,16 +71,22 @@ class JobCard extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.work_outline,
-                          size: 16, color: theme.colorScheme.onSurfaceVariant),
+                      Icon(
+                        Icons.work_outline,
+                        size: 16,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                       const SizedBox(width: 4),
-                      Text(job.employmentType, style: theme.textTheme.bodySmall),
+                      Text(
+                        job.employmentType.displayName,
+                        style: theme.textTheme.bodySmall,
+                      ),
                     ],
                   ),
                 ],
               ),
               const SizedBox(height: 8),
-        
+
               Text(
                 job.displaySalary,
                 style: theme.textTheme.bodyMedium?.copyWith(
@@ -85,13 +94,16 @@ class JobCard extends StatelessWidget {
                   color: theme.colorScheme.primary,
                 ),
               ),
-        
+
               if (job.closingDate != null) ...[
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    Icon(Icons.event_outlined,
-                        size: 16, color: theme.colorScheme.onSurfaceVariant),
+                    Icon(
+                      Icons.event_outlined,
+                      size: 16,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       job.canApply

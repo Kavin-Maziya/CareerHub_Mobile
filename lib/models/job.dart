@@ -1,70 +1,103 @@
+// Core domain model for a CareerHub job listing. Freezed-generated
+// ==, hashCode, copyWith, and toString give every Job instance real
+// value equality instead of Dart's default identity comparison.
 
-import 'package:careerhub_mobile/data/job_dto.dart' as dto;
+import 'package:careerhub_mobile/data/job_dto.dart';
+import 'package:careerhub_mobile/models/employment_type.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
 
-class Job {
-  final String id; // changed from int -- API uses Guid, serialized as String
-  final String title;
-  final String company;
-  final String location;
-  final String description;
-  final String employmentType;
-  final bool isOpen;
-  final String? salaryDisplay; // renamed from `salary` -- API already
-                                // formats this server-side; the model no
-                                // longer stores a raw number
-  final DateTime? closingDate;
+part 'job.freezed.dart';
 
-  Job({
-    required this.id,
-    required this.title,
-    required this.company,
-    required this.location,
-    required this.description,
-    required this.employmentType,
-    required this.isOpen,
-    this.salaryDisplay,
-    this.closingDate,
-  });
+@freezed
+abstract class Job with _$Job {
+  // Required so Freezed's generated mixin has a constructor path to
+  // attach custom members (canApply, displaySalary) to -- without this,
+  // build_runner cannot generate the class correctly.
+  const Job._();
 
-  Job.closed({
-    required this.id,
-    required this.title,
-    required this.company,
-    required this.location,
-    required this.description,
-    required this.employmentType,
-    this.salaryDisplay,
-    this.closingDate,
-  }) : isOpen = false;
+  const factory Job({
+    required String id,
+    required String title,
+    required String company,
+    required String location,
+    required String description,
+    required EmploymentType employmentType,
+    required bool isOpen,
+    String? salaryDisplay,
+    DateTime? closingDate,
+  }) = _Job;
 
-  Job.remote({
-    required this.id,
-    required this.title,
-    required this.company,
-    required this.description,
-    required this.employmentType,
-    required this.isOpen,
-    this.salaryDisplay,
-    this.closingDate,
-  }) : location = 'Remote';
-
-  // Maps the API's JobDto to the UI's Job. This factory is the
-  // translation layer between the two naming conventions -- one side
-  // uses the API's names (CompanyName, IsActive, SalaryDisplay), the
-  // other uses the Flutter UI's names (company, isOpen, salaryDisplay).
-  factory Job.fromDto(dto.JobDto d) {
+  // Converted from a factory constructor to a static method. Freezed
+  // treats every factory constructor as a potential union-type variant,
+  // so Job.fromDto would collide with that interpretation if left as a
+  // factory. The call site (Job.fromDto(dto)) is unchanged, since Dart's
+  // dot-syntax for a named constructor and a static method are
+  // identical at the call site.
+  static Job fromDto(JobDto dto) {
     return Job(
-      id: d.id,
-      title: d.title,
-      company: d.companyName, // API: CompanyName -> Flutter: company
-      location: d.location,
-      description: d.description,
-      employmentType: d.employmentType,
-      isOpen: d.isActive, // API: IsActive -> Flutter: isOpen
-      // API: SalaryDisplay -> Flutter: salaryDisplay. 
+      id: dto.id,
+      title: dto.title,
+      company: dto.companyName, // API: companyName -> Flutter: company
+      location: dto.location,
+      description: dto.description,
+      employmentType: EmploymentType.fromApiValue(dto.employmentType),
+      isOpen: dto.isActive, // API: isActive -> Flutter: isOpen
       salaryDisplay:
-          d.salaryDisplay.trim().isEmpty ? null : d.salaryDisplay,
-      closingDate: d.closingDate,
+          dto.salaryDisplay.trim().isEmpty ? null : dto.salaryDisplay,
+      closingDate: dto.closingDate,
+    );
+  }
+
+  // Converted from a named generative constructor to a static method.
+  // Job's fields are abstract getters implemented only by the generated
+  // _Job class -- there's no way for a second generative constructor on
+  // the abstract Job class to assign to them directly, so this can only
+  // survive as a static helper that calls the primary factory.
+  static Job closed({
+    required String id,
+    required String title,
+    required String company,
+    required String location,
+    required String description,
+    required EmploymentType employmentType,
+    String? salaryDisplay,
+    DateTime? closingDate,
+  }) {
+    return Job(
+      id: id,
+      title: title,
+      company: company,
+      location: location,
+      description: description,
+      employmentType: employmentType,
+      isOpen: false,
+      salaryDisplay: salaryDisplay,
+      closingDate: closingDate,
+    );
+  }
+
+  // Same conversion as Job.closed -- static method instead of a named
+  // generative constructor, for the same reason.
+  static Job remote({
+    required String id,
+    required String title,
+    required String company,
+    required String description,
+    required EmploymentType employmentType,
+    required bool isOpen,
+    String? salaryDisplay,
+    DateTime? closingDate,
+  }) {
+    return Job(
+      id: id,
+      title: title,
+      company: company,
+      location: 'Remote',
+      description: description,
+      employmentType: employmentType,
+      isOpen: isOpen,
+      salaryDisplay: salaryDisplay,
+      closingDate: closingDate,
     );
   }
 
@@ -72,10 +105,7 @@ class Job {
 
   String get displaySalary => salaryDisplay ?? 'Market-related';
 
-  @override
-  String toString() {
-    return 'Job(id: $id, title: $title, company: $company, location: $location, '
-        'isOpen: $isOpen, salary: ${salaryDisplay ?? "confidential"}, '
-        'closingDate: ${closingDate ?? "none"})';
-  }
+  // Custom toString removed -- Freezed's generated mixin already
+  // provides a toString listing every field, satisfying the same
+  // debugging need without hand-written string interpolation.
 }

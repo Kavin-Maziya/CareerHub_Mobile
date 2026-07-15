@@ -100,7 +100,7 @@ class JobDetailScreen extends ConsumerWidget {
                 const SizedBox(height: 16),
 
                 _DetailRow(icon: Icons.location_on_outlined, label: job.location),
-                _DetailRow(icon: Icons.work_outline, label: job.employmentType),
+                _DetailRow(icon: Icons.work_outline, label: job.employmentType.displayName),
                 _DetailRow(icon: Icons.payments_outlined, label: job.displaySalary),
                 if (job.closingDate != null)
                   _DetailRow(
