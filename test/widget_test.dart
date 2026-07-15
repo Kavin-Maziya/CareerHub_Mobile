@@ -3,59 +3,100 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:careerhub_mobile/main.dart';
+import 'package:careerhub_mobile/models/job.dart';
+import 'package:careerhub_mobile/providers/jobs_notifier.dart';
+
+// Fake notifier defined in the test file, not the main codebase.
+// Extends the PUBLIC JobsNotifier class, not _$JobsNotifier -- the
+// leading underscore makes _$JobsNotifier private to jobs_notifier.dart,
+// so no other file (including this test) can extend it directly.
+class _FakeJobsNotifier extends JobsNotifier {
+  @override
+  Future<List<Job>> build() async {
+    await Future.delayed(const Duration(milliseconds: 1500));
+    return [
+      Job(
+        id: '1',
+        title: 'Senior Frontend Software Engineer',
+        company: 'TechCorp Cape Town',
+        location: 'Cape Town',
+        description: 'We are looking for a talented Senior Frontend Engineer...',
+        employmentType: 'FullTime',
+        isOpen: true,
+        salaryDisplay: 'R37500 per month',
+        closingDate: DateTime(2026, 7, 24),
+      ),
+      Job(
+        id: '2',
+        title: 'UX/Web Designer',
+        company: 'DesignHouse Sandton',
+        location: 'Sandton',
+        description: 'We are looking for a creative UX/Web Designer...',
+        employmentType: 'Contract',
+        isOpen: true,
+      ),
+      Job.closed(
+        id: '3',
+        title: 'Data Analyst Intern',
+        company: 'DataWorks Pretoria',
+        location: 'Pretoria/Hybrid',
+        description: 'We are looking for a Data Analyst Intern...',
+        employmentType: 'Internship',
+        salaryDisplay: 'R18500 per month',
+        closingDate: DateTime(2026, 6, 19),
+      ),
+      Job.remote(
+        id: '4',
+        title: 'Part-Time Content Writer/Promoter',
+        company: 'MediaCo',
+        description: 'We are looking for a Content Writer...',
+        employmentType: 'PartTime',
+        isOpen: true,
+        salaryDisplay: 'R15000 per month',
+        closingDate: DateTime(2026, 7, 24),
+      ),
+    ];
+  }
+}
 
 void main() {
-  testWidgets('CareerHub renders app bar, loading state, and job cards',
+  testWidgets('CareerHub renders app bar, loading state, job cards, and nav bar',
       (WidgetTester tester) async {
-        // Force a narrow, phone-sized viewport so the LayoutBuilder picks
-    // the single-column list, not the two-column grid -- avoids a
-    // RenderFlex overflow in JobCard's location/employmentType row
-    // when squeezed into a grid cell during testing.
     tester.view.physicalSize = const Size(500, 2800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
-    
-    // ProviderScope is required -- HomeScreen is a ConsumerWidget.
-    await tester.pumpWidget(const ProviderScope(child: CareerHubApp()));
 
-    // App bar is visible immediately -- no async needed.
+    // Override jobsProvider with the fake notifier -- no real network
+    // call happens during this test.
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          jobsProvider.overrideWith(_FakeJobsNotifier.new),
+        ],
+        child: const CareerHubApp(),
+      ),
+    );
+
     expect(find.text('CareerHub'), findsOneWidget);
-
-    // During the 1.5-second simulated load, a spinner should be visible.
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
-    // Advance the fake timer past the 1500ms delay in JobsNotifier.build().
     await tester.pump(const Duration(seconds: 2));
-
-    // Process the widget rebuild triggered by the provider moving to AsyncData.
     await tester.pumpAndSettle();
 
-    // Spinner is gone -- data is loaded.
     expect(find.byType(CircularProgressIndicator), findsNothing);
 
-    // All four jobs from the provider should render.
     expect(find.text('Senior Frontend Software Engineer'), findsOneWidget);
     expect(find.text('UX/Web Designer'), findsOneWidget);
     expect(find.text('Data Analyst Intern'), findsOneWidget);
     expect(find.text('Part-Time Content Writer/Promoter'), findsOneWidget);
 
-    // Status badges: 3 open jobs, 1 closed job.
     expect(find.text('Open'), findsNWidgets(3));
     expect(find.text('Closed'), findsOneWidget);
 
-    // Filter chips render with the correct labels.
     expect(find.text('All'), findsOneWidget);
-    // 'Remote' also appears twice: once as the filter chip, once as the
-    // Part-Time Content Writer/Promoter job's location.
     expect(find.text('Remote'), findsNWidgets(2));
-    // 'Full-Time' appears twice: once as the filter chip label, once in
-    // the Senior Frontend Software Engineer card's employment-type row.
     expect(find.text('Full-Time'), findsNWidgets(2));
 
-    // NEW: NavigationBar destination labels are new text nodes in the
-    // tree that didn't exist before GoRouter's StatefulShellRoute.
-    // 'Jobs' and 'Saved' don't collide with any existing text elsewhere
-    // in the tree, so both are asserted as findsOneWidget.
     expect(find.text('Jobs'), findsOneWidget);
     expect(find.text('Saved'), findsOneWidget);
   });
