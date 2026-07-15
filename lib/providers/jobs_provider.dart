@@ -1,6 +1,4 @@
-// lib/providers/jobs_provider.dart
 
-import 'package:careerhub_mobile/models/employment_type.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import '../models/job.dart';
@@ -24,14 +22,12 @@ final filteredJobsProvider = Provider<AsyncValue<List<Job>>>((ref) {
 
   return asyncJobs.whenData((jobs) {
     return switch (filter) {
-      'All' => jobs,
-      'Remote' => jobs.where((j) => j.location == 'Remote').toList(),
-      _ when filter.isNotEmpty => jobs.where((j) {
-          final type = EmploymentType.fromApiValue(j.employmentType);
-          return type.displayName == filter;
-        }).toList(),
-      _ => jobs,
-    };
+  'All' => jobs,
+  'Remote' => jobs.where((j) => j.location == 'Remote').toList(),
+  _ when filter.isNotEmpty =>
+    jobs.where((j) => j.employmentType.displayName == filter).toList(),
+  _ => jobs,
+};
   });
 });
 

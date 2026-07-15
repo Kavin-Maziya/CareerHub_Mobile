@@ -1,4 +1,3 @@
-import 'package:careerhub_mobile/models/employment_type.dart';
 import 'package:careerhub_mobile/providers/jobs_notifier.dart';
 import 'package:careerhub_mobile/widgets/job_status_badge.dart';
 import 'package:flutter/material.dart';
@@ -101,7 +100,7 @@ class JobDetailScreen extends ConsumerWidget {
                 const SizedBox(height: 16),
 
                 _DetailRow(icon: Icons.location_on_outlined, label: job.location),
-                _DetailRow(icon: Icons.work_outline, label: EmploymentType.fromApiValue(job.employmentType).displayName,),
+                _DetailRow(icon: Icons.work_outline, label: job.employmentType.displayName),
                 _DetailRow(icon: Icons.payments_outlined, label: job.displaySalary),
                 if (job.closingDate != null)
                   _DetailRow(

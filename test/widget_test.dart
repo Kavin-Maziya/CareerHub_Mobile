@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:careerhub_mobile/main.dart';
 import 'package:careerhub_mobile/models/job.dart';
 import 'package:careerhub_mobile/providers/jobs_notifier.dart';
+import 'package:careerhub_mobile/models/employment_type.dart';
 
 // Fake notifier defined in the test file, not the main codebase.
 // Extends the PUBLIC JobsNotifier class, not _$JobsNotifier -- the
@@ -21,7 +22,7 @@ class _FakeJobsNotifier extends JobsNotifier {
         company: 'TechCorp Cape Town',
         location: 'Cape Town',
         description: 'We are looking for a talented Senior Frontend Engineer...',
-        employmentType: 'FullTime',
+        employmentType: EmploymentType.fullTime,
         isOpen: true,
         salaryDisplay: 'R37500 per month',
         closingDate: DateTime(2026, 7, 24),
@@ -32,7 +33,7 @@ class _FakeJobsNotifier extends JobsNotifier {
         company: 'DesignHouse Sandton',
         location: 'Sandton',
         description: 'We are looking for a creative UX/Web Designer...',
-        employmentType: 'Contract',
+        employmentType: EmploymentType.contract,
         isOpen: true,
       ),
       Job.closed(
@@ -41,7 +42,7 @@ class _FakeJobsNotifier extends JobsNotifier {
         company: 'DataWorks Pretoria',
         location: 'Pretoria/Hybrid',
         description: 'We are looking for a Data Analyst Intern...',
-        employmentType: 'Internship',
+        employmentType: EmploymentType.internship, 
         salaryDisplay: 'R18500 per month',
         closingDate: DateTime(2026, 6, 19),
       ),
@@ -50,7 +51,7 @@ class _FakeJobsNotifier extends JobsNotifier {
         title: 'Part-Time Content Writer/Promoter',
         company: 'MediaCo',
         description: 'We are looking for a Content Writer...',
-        employmentType: 'PartTime',
+        employmentType: EmploymentType.partTime,
         isOpen: true,
         salaryDisplay: 'R15000 per month',
         closingDate: DateTime(2026, 7, 24),

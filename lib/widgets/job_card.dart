@@ -1,4 +1,3 @@
-import 'package:careerhub_mobile/models/employment_type.dart';
 import 'package:careerhub_mobile/widgets/job_status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:careerhub_mobile/models/job.dart';
@@ -79,9 +78,7 @@ class JobCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        EmploymentType.fromApiValue(
-                          job.employmentType,
-                        ).displayName,
+                        job.employmentType.displayName,
                         style: theme.textTheme.bodySmall,
                       ),
                     ],
