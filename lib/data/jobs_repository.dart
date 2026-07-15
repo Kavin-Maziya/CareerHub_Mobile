@@ -36,12 +36,34 @@ class JobsRepository {
 
   JobsRepository(this._dio);
 
-  Future<List<Job>> getJobs() async {
-    final response = await _dio.get('/api/v1/jobs/all');
-    final data = response.data['data'] as List<dynamic>;
-    return data
-        .map((json) => JobDto.fromJson(json as Map<String, dynamic>))
-        .map((dto) => Job.fromDto(dto))
-        .toList();
-  }
+
+({List<Job> jobs, int totalCount, bool hasNextPage}) _parseJobsResponse(
+  Map<String, dynamic> responseData,
+) {
+  final data = responseData['data'] as List<dynamic>;
+  final jobs = data
+      .map((json) => JobDto.fromJson(json as Map<String, dynamic>))
+      .map((dto) => Job.fromDto(dto))
+      .toList();
+
+  return (
+    jobs: jobs,
+    totalCount: responseData['totalCount'] as int,
+    hasNextPage: responseData['hasNextPage'] as bool,
+  );
+}
+
+Future<List<Job>> getJobs() async {
+  final response = await _dio.get('/api/v1/jobs/all');
+
+  // Named record destructuring -- binds all three parsed values to
+  // clearly named variables at the call site.
+  final (:jobs, :totalCount, :hasNextPage) =
+      _parseJobsResponse(response.data as Map<String, dynamic>);
+
+  // totalCount and hasNextPage currently not used by getJobs() yet, but are
+  // now available for a future pull-to-refresh / pagination feature
+  // (Assignment 2.1 Stretch A) without needing to touch this parsing logic again.
+  return jobs;
+}
 }

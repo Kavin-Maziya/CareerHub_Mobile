@@ -1,5 +1,6 @@
 // lib/providers/jobs_provider.dart
 
+import 'package:careerhub_mobile/models/employment_type.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import '../models/job.dart';
@@ -15,16 +16,22 @@ final sortOrderProvider = StateProvider<String>((ref) => 'A-Z');
 // Derived state. Watches the real jobsProvider (from jobs_notifier.dart,
 // backed by the repository/API) and the filter. Recomputes automatically
 // whenever either changes.
+
+// Converted to a switch expression with guard clauses
 final filteredJobsProvider = Provider<AsyncValue<List<Job>>>((ref) {
   final asyncJobs = ref.watch(jobsProvider);
   final filter = ref.watch(selectedFilterProvider);
 
   return asyncJobs.whenData((jobs) {
-    if (filter == 'All') return jobs;
-    if (filter == 'Remote') {
-      return jobs.where((j) => j.location == 'Remote').toList();
-    }
-    return jobs.where((j) => j.employmentType == filter).toList();
+    return switch (filter) {
+      'All' => jobs,
+      'Remote' => jobs.where((j) => j.location == 'Remote').toList(),
+      _ when filter.isNotEmpty => jobs.where((j) {
+          final type = EmploymentType.fromApiValue(j.employmentType);
+          return type.displayName == filter;
+        }).toList(),
+      _ => jobs,
+    };
   });
 });
 
