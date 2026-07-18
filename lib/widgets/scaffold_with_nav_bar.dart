@@ -38,6 +38,11 @@ class ScaffoldWithNavBar extends StatelessWidget {
             selectedIcon: Icon(Icons.bookmark),
             label: 'Saved',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.description_outlined),
+            selectedIcon: Icon(Icons.description),
+            label: 'Applications',
+          ),
         ],
       ),
     );
