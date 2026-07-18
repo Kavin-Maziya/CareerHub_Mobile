@@ -1,3 +1,4 @@
+import 'package:careerhub_mobile/features/applications/screens/applications_screen.dart';
 import 'package:careerhub_mobile/screens/home_screen.dart';
 import 'package:careerhub_mobile/screens/saved_screen.dart';
 import 'package:careerhub_mobile/screens/job_detail_screen.dart';
@@ -49,6 +50,15 @@ final appRouter = GoRouter(
             GoRoute(
               path: '/saved',
               builder: (context, state) => const SavedScreen(),
+            ),
+          ],
+        ),
+        // Branch 2: Applications tab (new)
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: '/applications',
+              builder: (context, state) => const ApplicationsScreen(),
             ),
           ],
         ),
