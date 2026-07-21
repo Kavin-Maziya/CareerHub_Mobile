@@ -38,33 +38,159 @@ class AuthRepository {
     required this.storage,
   });
 
-  Future<String?> readAccessToken() async {
-  return null;
+ Future<String?> readAccessToken() async {
+  return storage.read(key: _accessTokenKey);
 }
 
 bool isTokenExpired(String token) {
-  return false;
+  try {
+    final payload = _decodeJwtPayload(token);
+
+    final exp = payload['exp'];
+
+    if (exp == null) {
+      return false;
+    }
+
+    final expiry = DateTime.fromMillisecondsSinceEpoch(
+      (exp as int) * 1000,
+    );
+
+    return expiry.isBefore(DateTime.now());
+  } catch (_) {
+    return true;
+  }
 }
 
 User decodeUser(String token) {
-  throw UnimplementedError();
+  final payload = _decodeJwtPayload(token);
+
+  final email = payload['email'] as String? ?? '';
+
+  return User(
+    id: payload['sub'] as String? ?? '',
+    email: email,
+    displayName: payload['name'] as String? ?? email,
+  );
 }
 
 Future<ApiResult<User>> login(
   String email,
   String password,
 ) async {
-  throw UnimplementedError();
+  try {
+    final response = await dio.post(
+      '/api/auth/login',
+      data: {
+        'email': email,
+        'password': password,
+      },
+    );
+
+    final data = response.data as Map<String, dynamic>;
+
+    final accessToken = data['accessToken'] as String;
+    final refreshToken = data['refreshToken'] as String;
+
+    await storage.write(
+      key: _accessTokenKey,
+      value: accessToken,
+    );
+
+    await storage.write(
+      key: _refreshTokenKey,
+      value: refreshToken,
+    );
+
+    return Success(
+      decodeUser(accessToken),
+    );
+  } on DioException catch (e) {
+    if (e.response?.statusCode == 400 ||
+        e.response?.statusCode == 401) {
+      return const Failure(
+        'Invalid email or password.',
+      );
+    }
+
+    return Failure(
+      e.message ?? 'A network error occurred.',
+      statusCode: e.response?.statusCode,
+    );
+  } catch (_) {
+    return const Failure(
+      'Something went wrong. Please try again.',
+    );
+  }
 }
 
 Future<User?> tryRefresh() async {
-  return null;
+  final refreshToken = await storage.read(
+    key: _refreshTokenKey,
+  );
+
+  if (refreshToken == null) {
+    return null;
+  }
+
+  try {
+    final response = await dio.post(
+      '/api/auth/refresh',
+      data: {
+        'refreshToken': refreshToken,
+      },
+    );
+
+    final data = response.data as Map<String, dynamic>;
+
+    final accessToken = data['accessToken'] as String;
+
+    await storage.write(
+      key: _accessTokenKey,
+      value: accessToken,
+    );
+
+    final newRefreshToken = data['refreshToken'] as String?;
+
+    if (newRefreshToken != null) {
+      await storage.write(
+        key: _refreshTokenKey,
+        value: newRefreshToken,
+      );
+    }
+
+    return decodeUser(accessToken);
+  } catch (_) {
+    await storage.deleteAll();
+    return null;
+  }
 }
 
-Future<void> logout() async {}
+Future<void> logout() async {
+  await storage.deleteAll();
+}
 
 static Map<String, dynamic> _decodeJwtPayload(String token) {
-  throw UnimplementedError();
+  final segments = token.split('.');
+
+  if (segments.length != 3) {
+    throw const FormatException('Invalid JWT');
+  }
+
+  final payload = segments[1];
+
+  final normalized = payload.padRight(
+    payload.length + ((4 - payload.length % 4) % 4),
+    '=',
+  );
+
+  final decoded = utf8.decode(
+    base64Url.decode(normalized),
+  );
+
+  return Map<String, dynamic>.from(
+    jsonDecode(decoded),
+  );
 }
 
 }
