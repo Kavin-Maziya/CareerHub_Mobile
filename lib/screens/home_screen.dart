@@ -5,6 +5,7 @@ import 'package:careerhub_mobile/providers/jobs_provider.dart';
 import 'package:careerhub_mobile/providers/jobs_notifier.dart';
 import 'package:careerhub_mobile/widgets/job_card.dart';
 import 'package:careerhub_mobile/providers/filter_notifier.dart';
+import 'package:careerhub_mobile/providers/connectivity_provider.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -26,8 +27,9 @@ class HomeScreen extends ConsumerWidget {
     // and sorted jobs value changes, whether that's a filter tap, a
     // sort tap, or the underlying job list finishing its load.
     final jobsAsync = ref.watch(sortedJobsProvider);
-    final selectedFilter = ref.watch(filterNotifierProvider);
+    final selectedFilter = ref.watch(filterProvider);
     final sortOrder = ref.watch(sortOrderProvider);
+    final isOffline = ref.watch(isOfflineProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -36,6 +38,16 @@ class HomeScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
+if (isOffline)
+  MaterialBanner(
+    backgroundColor: theme.colorScheme.secondaryContainer,
+    leading: const Icon(Icons.wifi_off),
+    content: const Text(
+      'You are offline. Showing cached jobs.',
+    ),
+    actions: const [],
+  ),
+
           // Filter chip row stays pinned above the list or grid,
           // no matter which AsyncValue state is showing below it.
           Padding(
@@ -56,7 +68,7 @@ class HomeScreen extends ConsumerWidget {
                             // ref.read here -- this is a callback, not
                             // build(). We're updating state once in
                             // response to a tap, not subscribing to it.
-                            ref.read(filterNotifierProvider.notifier).select(label);
+                            ref.read(filterProvider.notifier).select(label);
                           },
                         ),
                       ),
@@ -116,9 +128,10 @@ class HomeScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: 16),
                       FilledButton(
-                        onPressed: () => ref.invalidate(jobsProvider),
-                        child: const Text('Retry'),
-                      ),
+  onPressed: () =>
+      ref.read(jobsProvider.notifier).refresh(),
+  child: const Text('Retry'),
+),
                     ],
                   ),
                 ),

@@ -1,6 +1,7 @@
 
 import 'package:careerhub_mobile/core/isar_provider.dart';
 import 'package:careerhub_mobile/core/prefs_provider.dart';
+import 'package:careerhub_mobile/data/job_cache.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar_community/isar.dart';
