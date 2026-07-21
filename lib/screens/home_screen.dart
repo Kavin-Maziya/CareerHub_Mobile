@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:careerhub_mobile/providers/jobs_provider.dart';
 import 'package:careerhub_mobile/providers/jobs_notifier.dart';
 import 'package:careerhub_mobile/widgets/job_card.dart';
+import 'package:careerhub_mobile/providers/filter_notifier.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -25,7 +26,7 @@ class HomeScreen extends ConsumerWidget {
     // and sorted jobs value changes, whether that's a filter tap, a
     // sort tap, or the underlying job list finishing its load.
     final jobsAsync = ref.watch(sortedJobsProvider);
-    final selectedFilter = ref.watch(selectedFilterProvider);
+    final selectedFilter = ref.watch(filterNotifierProvider);
     final sortOrder = ref.watch(sortOrderProvider);
 
     return Scaffold(
@@ -55,8 +56,7 @@ class HomeScreen extends ConsumerWidget {
                             // ref.read here -- this is a callback, not
                             // build(). We're updating state once in
                             // response to a tap, not subscribing to it.
-                            ref.read(selectedFilterProvider.notifier).state =
-                                label;
+                            ref.read(filterNotifierProvider.notifier).select(label);
                           },
                         ),
                       ),
