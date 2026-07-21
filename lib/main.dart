@@ -1,28 +1,23 @@
 
+import 'package:careerhub_mobile/core/isar_provider.dart';
+import 'package:careerhub_mobile/core/prefs_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar_community/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'router/app_router.dart';
-import 'features/applications/data/application_cache_entry.dart';
 
 
-final isarProvider = Provider<Isar>((ref) {
-  throw UnimplementedError('isarProvider must be overridden in main()');
-});
-
-final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
-  throw UnimplementedError(
-      'sharedPreferencesProvider must be overridden in main()');
-});
-
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final dir = await getApplicationDocumentsDirectory();
+
   final isar = await Isar.open(
-    [ApplicationCacheEntrySchema],
+    [
+      JobCacheSchema,
+    ],
     directory: dir.path,
   );
 
@@ -32,7 +27,7 @@ void main() async {
     ProviderScope(
       overrides: [
         isarProvider.overrideWithValue(isar),
-        sharedPreferencesProvider.overrideWithValue(prefs),
+        prefsProvider.overrideWithValue(prefs),
       ],
       child: const CareerHubApp(),
     ),

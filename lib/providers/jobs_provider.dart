@@ -3,10 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import '../models/job.dart';
 import 'jobs_notifier.dart';
+import 'filter_notifier.dart';
 
-// selectedFilterProvider
-// Holds the currently selected filter chip label. Default is 'All'.
-final selectedFilterProvider = StateProvider<String>((ref) => 'All');
 
 final sortOrderProvider = StateProvider<String>((ref) => 'A-Z');
 
@@ -18,7 +16,8 @@ final sortOrderProvider = StateProvider<String>((ref) => 'A-Z');
 // Converted to a switch expression with guard clauses
 final filteredJobsProvider = Provider<AsyncValue<List<Job>>>((ref) {
   final asyncJobs = ref.watch(jobsProvider);
-  final filter = ref.watch(selectedFilterProvider);
+
+final filter = ref.watch(filterNotifierProvider);
 
   return asyncJobs.whenData((jobs) {
     return switch (filter) {

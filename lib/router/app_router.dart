@@ -1,4 +1,4 @@
-import 'package:careerhub_mobile/features/applications/screens/applications_screen.dart';
+//import 'package:careerhub_mobile/features/applications/screens/applications_screen.dart';
 import 'package:careerhub_mobile/screens/home_screen.dart';
 import 'package:careerhub_mobile/screens/saved_screen.dart';
 import 'package:careerhub_mobile/screens/job_detail_screen.dart';
@@ -54,14 +54,14 @@ final appRouter = GoRouter(
           ],
         ),
         // Branch 2: Applications tab (new)
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
-              path: '/applications',
-              builder: (context, state) => const ApplicationsScreen(),
-            ),
-          ],
-        ),
+        // StatefulShellBranch(
+        //   routes: [
+        //     GoRoute(
+        //       path: '/applications',
+        //       builder: (context, state) => const ApplicationsScreen(),
+        //     ),
+        //   ],
+        // ),
       ],
     ),
   ],
