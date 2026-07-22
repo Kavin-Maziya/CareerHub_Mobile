@@ -1,6 +1,7 @@
 import 'package:careerhub_mobile/data/api_result.dart';
 import 'package:careerhub_mobile/data/auth_repository.dart';
 import 'package:careerhub_mobile/models/auth_state.dart';
+import 'package:careerhub_mobile/models/user.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'auth_notifier.g.dart';

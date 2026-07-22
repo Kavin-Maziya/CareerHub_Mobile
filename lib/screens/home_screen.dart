@@ -7,7 +7,6 @@ import 'package:careerhub_mobile/widgets/job_card.dart';
 import 'package:careerhub_mobile/providers/filter_notifier.dart';
 import 'package:careerhub_mobile/providers/connectivity_provider.dart';
 import 'package:careerhub_mobile/providers/auth_notifier.dart';
-import 'package:careerhub_mobile/providers/jobs_notifier.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -42,10 +41,10 @@ class HomeScreen extends ConsumerWidget {
       icon: const Icon(Icons.logout),
       tooltip: 'Logout',
       onPressed: () async {
-        ref.invalidate(jobsNotifierProvider);
+        ref.invalidate(jobsProvider);
 
         await ref
-            .read(authNotifierProvider.notifier)
+            .read(authProvider.notifier)
             .logout();
       },
     ),

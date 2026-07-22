@@ -8,7 +8,7 @@ final onUnauthenticatedProvider =
     Provider<void Function()>((ref) {
 
   return () {
-    ref.invalidate(authNotifierProvider);
+    ref.invalidate(authProvider);
   };
 });
 
@@ -17,7 +17,7 @@ class AuthStateListenable extends ChangeNotifier {
 
   AuthStateListenable(this.ref) {
     _subscription = ref.listen(
-      authNotifierProvider,
+      authProvider,
       (_, _) {
         notifyListeners();
       },

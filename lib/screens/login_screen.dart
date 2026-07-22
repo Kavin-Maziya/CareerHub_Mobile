@@ -22,7 +22,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _submit() async {
-    await ref.read(authNotifierProvider.notifier).login(
+    await ref.read(authProvider.notifier).login(
           _emailController.text.trim(),
           _passwordController.text,
         );
@@ -30,17 +30,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = ref.watch(authNotifierProvider);
+    final auth = ref.watch(authProvider);
 
-    final isLoading = switch (auth.valueOrNull) {
-      Authenticating() => true,
-      _ => false,
-    };
+    final isLoading = auth is AsyncData<AuthState> &&
+    auth.value is Authenticating;
 
-    final errorMessage = switch (auth.valueOrNull) {
-      AuthError(:final message) => message,
-      _ => null,
-    };
+    String? errorMessage;
+
+if (auth is AsyncData<AuthState>) {
+  final state = auth.value;
+
+  if (state is AuthError) {
+    errorMessage = state.message;
+  }
+}
 
     final theme = Theme.of(context);
 

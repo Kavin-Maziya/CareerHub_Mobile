@@ -7,7 +7,6 @@ import 'package:careerhub_mobile/screens/login_screen.dart';
 import 'package:careerhub_mobile/screens/saved_screen.dart';
 import 'package:careerhub_mobile/widgets/scaffold_with_nav_bar.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -19,7 +18,7 @@ final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
 @riverpod
-GoRouter appRouter(AppRouterRef ref) {
+GoRouter appRouter(Ref ref) {
   final authListenable = ref.watch(authStateListenableProvider);
 
   return GoRouter(
@@ -28,17 +27,16 @@ GoRouter appRouter(AppRouterRef ref) {
     refreshListenable: authListenable,
 
     redirect: (context, state) {
-      final auth = ref.read(authNotifierProvider);
+      final auth = ref.read(authProvider);
 
       // Allow AuthNotifier.build() to complete before redirecting.
       if (auth.isLoading) {
         return null;
       }
 
-      final isAuthenticated = switch (auth.valueOrNull) {
-        Authenticated() => true,
-        _ => false,
-      };
+      final isAuthenticated =
+    auth is AsyncData<AuthState> &&
+    auth.value is Authenticated;
 
       final isLoginRoute = state.matchedLocation == '/login';
 
