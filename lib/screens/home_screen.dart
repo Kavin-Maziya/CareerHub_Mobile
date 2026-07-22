@@ -38,15 +38,13 @@ class HomeScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
-if (isOffline)
-  MaterialBanner(
-    backgroundColor: theme.colorScheme.secondaryContainer,
-    leading: const Icon(Icons.wifi_off),
-    content: const Text(
-      'You are offline. Showing cached jobs.',
-    ),
-    actions: const [],
-  ),
+          if (isOffline)
+            MaterialBanner(
+              backgroundColor: theme.colorScheme.secondaryContainer,
+              leading: const Icon(Icons.wifi_off),
+              content: const Text('You are offline. Showing cached jobs.'),
+              actions: const [],
+            ),
 
           // Filter chip row stays pinned above the list or grid,
           // no matter which AsyncValue state is showing below it.
@@ -106,9 +104,7 @@ if (isOffline)
 
           Expanded(
             child: jobsAsync.when(
-              loading: () => const Center(
-                child: CircularProgressIndicator(),
-              ),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (error, stackTrace) => Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
@@ -128,10 +124,10 @@ if (isOffline)
                       ),
                       const SizedBox(height: 16),
                       FilledButton(
-  onPressed: () =>
-      ref.read(jobsProvider.notifier).refresh(),
-  child: const Text('Retry'),
-),
+                        onPressed: () =>
+                            ref.read(jobsProvider.notifier).refresh(),
+                        child: const Text('Retry'),
+                      ),
                     ],
                   ),
                 ),
@@ -171,11 +167,11 @@ if (isOffline)
                         padding: const EdgeInsets.all(8),
                         gridDelegate:
                             const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          childAspectRatio: 1.2,
-                          crossAxisSpacing: 8,
-                          mainAxisSpacing: 8,
-                        ),
+                              crossAxisCount: 2,
+                              childAspectRatio: 1.2,
+                              crossAxisSpacing: 8,
+                              mainAxisSpacing: 8,
+                            ),
                         itemCount: jobs.length,
                         itemBuilder: (context, index) =>
                             _buildCard(context, jobs, index),

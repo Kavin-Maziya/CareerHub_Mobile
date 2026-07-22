@@ -9,23 +9,47 @@ import 'package:careerhub_mobile/data/api_result.dart';
 import 'package:careerhub_mobile/core/isar_provider.dart';
 import 'package:careerhub_mobile/data/job_cache.dart';
 import 'package:isar_community/isar.dart';
+import 'package:careerhub_mobile/data/auth_interceptor.dart';
+import 'package:careerhub_mobile/providers/auth_provider.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 part 'jobs_repository.g.dart';
 
 @riverpod
 Dio dio(Ref ref) {
+  const baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://10.0.2.2:5059',
+  );
+
   final dio = Dio(
     BaseOptions(
-      baseUrl: const String.fromEnvironment(
-        'API_BASE_URL',
-        // Android emulator's alias for the host machine's localhost.
-        defaultValue: 'http://10.0.2.2:5059',
-      ),
+      baseUrl: baseUrl,
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
     ),
   );
-  dio.interceptors.add(LogInterceptor(responseBody: true));
+
+  dio.interceptors.add(
+    LogInterceptor(
+      responseBody: true,
+    ),
+  );
+
+  final retryDio = Dio(
+    BaseOptions(
+      baseUrl: baseUrl,
+    ),
+  );
+
+  dio.interceptors.add(
+    AuthInterceptor(
+      storage: const FlutterSecureStorage(),
+      retryDio: retryDio,
+      onUnauthenticated: ref.read(onUnauthenticatedProvider),
+    ),
+  );
+
   return dio;
 }
 
