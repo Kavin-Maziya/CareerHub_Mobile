@@ -3,6 +3,331 @@
 CareerHub is a job listing and application platform.
 ---
 
+
+
+## Assignment 2.4 — Authentication and Secure API Flow
+ 
+**Written decisions dated:** 2026-07-23
+ 
+---
+ 
+## Part 1 — Written Decisions
+ 
+### Question 1 — Token storage and platform security boundaries
+ 
+**Why access/refresh tokens cannot live in SharedPreferences**
+ 
+On Android, `SharedPreferences` writes a plain XML file to
+`/data/data/<package_name>/shared_prefs/<file_name>.xml` inside the app's
+private data directory. Under normal circumstances this file is protected
+only by Linux discretionary access control — the directory is created with
+mode `700` and the file with mode `660`, owned by the app's unique UID, so
+another *installed app* cannot open it through the normal filesystem APIs.
+That protection is about process isolation, not encryption: the token sits
+on disk as readable UTF-8 text with no cryptographic protection at all.
+ 
+The concrete attack does not require root. Two ordinary channels expose the
+file even on a stock, non-rooted device:
+ 
+1. **`adb backup` / USB debugging.** If the device has USB debugging enabled
+   (common on developer or test devices, and trivial to enable if the phone
+   is briefly unattended) and the app has not explicitly set
+   `android:allowBackup="false"`, `adb backup` can pull the entire app data
+   directory — including `shared_prefs/*.xml` — to a connected computer with
+   no root and no exploit, just a USB cable and an unlocked screen.
+2. **Android Auto Backup to Google Drive.** By default, Android backs up app
+   data (again including `shared_prefs`) to the user's Google Drive. Anyone
+   who gains access to that Google account — via a phishing page, a reused
+   password, or a session token from an unrelated breach — can restore the
+   backup onto an attacker-controlled device and read the tokens directly
+   out of the XML file, without ever touching the victim's phone.
+Either path hands an attacker the raw access and refresh tokens, which is
+equivalent to full account takeover until the tokens are revoked
+server-side. Neither path requires cracking anything, because
+`SharedPreferences` never encrypted the data in the first place.
+ 
+**What the iOS Keychain provides that a file on disk does not**
+ 
+`flutter_secure_storage` stores tokens in the iOS Keychain rather than in a
+plist or a file. The Keychain gives two protections a raw file never has:
+ 
+- **Passcode-tied encryption.** Keychain items are encrypted with keys
+  derived from the device passcode (combined with a device-specific UID
+  key). A file written to the app sandbox has no such gate — anything that
+  can read the sandbox can read the file's bytes.
+- **Hardware-backed key storage (Secure Enclave).** On devices with a Secure
+  Enclave, the cryptographic keys protecting Keychain items can be generated
+  and used *inside* that isolated co-processor. The key material never
+  enters the main OS's address space, so even a full jailbreak of the
+  primary kernel does not expose the raw key.
+`kSecAttrAccessibleWhenUnlocked` only permits access while the device is
+actively unlocked at the moment of the read — the strictest option, but it
+blocks background code (e.g. a background token refresh) whenever the phone
+is locked. `kSecAttrAccessibleAfterFirstUnlock` permits access any time
+after the user has unlocked the device once since the last reboot, even if
+they subsequently lock it again — this is what lets a background process
+refresh a token while the phone sits locked in a pocket.
+ 
+If tokens must survive an app **reinstall**, `kSecAttrAccessibleAfterFirstUnlock`
+is the right choice. Keychain items are not tied to the app's binary or its
+sandbox the way `SharedPreferences`/`UserDefaults` are — deleting and
+reinstalling the app does not clear them (they are only cleared on request
+or when the device is wiped). Choosing `AfterFirstUnlock` means the
+just-reinstalled app can read the previously stored token immediately on
+first launch without requiring the device to be unlocked at that *exact*
+instant, which matters if the reinstall is triggered by an MDM push or a
+background App Store update rather than a manual, unlocked launch.
+ 
+**Why `minSdkVersion` must be 23**
+ 
+`flutter_secure_storage` uses `EncryptedSharedPreferences` on Android, which
+wraps the ordinary `SharedPreferences` file with AES-256 encryption for both
+keys and values (via the Jetpack Security / Tink implementation), instead of
+writing plaintext XML. The master key that performs that encryption is
+generated and held by the **Android Keystore system**, whose modern
+key-generation API (`KeyGenParameterSpec` /
+`KeyGenParameterSpec.Builder`) was introduced in **API level 23 (Android
+6.0, Marshmallow)**.
+ 
+Below API 23 the `KeyGenParameterSpec` class simply does not exist on the
+device, so the very first attempt to create or access a key throws at
+runtime — not at compile time — with `java.lang.NoClassDefFoundError`
+(reported by the runtime as *"Could not find class
+'android.security.keystore.KeyGenParameterSpec$Builder'"*). The app builds
+and installs cleanly on an API 21/22 device; it only crashes the first time
+`flutter_secure_storage` tries to touch the Keystore. This is exactly why
+`android/app/build.gradle`'s `minSdkVersion` was raised to 23 in Part 2 —
+the Gradle build system has no way to catch this at compile time, since the
+missing class only fails to resolve at the device's actual runtime.
+ 
+---
+ 
+### Question 2 — The sealed `AuthState` and the two-layer state machine
+ 
+**Why an enum is insufficient**
+ 
+A Dart `enum` can only represent a fixed set of *labels* — it cannot attach
+a differently-typed payload to each case. `Authenticated` needs to carry a
+`User` object and `AuthError` needs to carry a `String` message; an enum
+value like `AuthStatus.authenticated` has nowhere to hold that data, so the
+codebase would have to bolt on nullable side-fields (`User? currentUser`,
+`String? errorMessage`) next to the enum and hope every reader remembers
+which fields are valid for which case. Nothing enforces that discipline —
+it is entirely possible to end up with `AuthStatus.unauthenticated` paired
+with a stale `errorMessage` still set from three logins ago.
+ 
+A `sealed class` fixes this because each subtype **is** its payload.
+`Authenticated` *has* a `User user` field that only exists when you are
+looking at an `Authenticated` instance; `AuthError` *has* a `String message`
+field that only exists on `AuthError`. Combined with Dart 3 pattern
+matching (`switch (state) { Authenticated(:final user) => ..., AuthError(:final message) => ... }`),
+the compiler enforces exhaustiveness — if a fifth subtype were ever added,
+every `switch` handling `AuthState` would fail to compile until it was
+updated — and it is structurally impossible to read `user` off an
+`AuthError` or vice-versa, which an enum-plus-nullable-fields design cannot
+guarantee.
+ 
+**The two distinct loading states**
+ 
+1. **`AsyncValue` loading, at cold boot.** This is triggered the moment
+   `AuthNotifier.build()` starts running — before it has read anything from
+   secure storage. `authProvider`'s value is `AsyncLoading<AuthState>`.
+   During this window the router's `redirect` callback checks
+   `auth.isLoading` and returns `null` — it deliberately does *not*
+   redirect. The user sees whatever the router's `initialLocation` renders
+   mid-load (in this app, a brief flash of the jobs route's own loading
+   state) rather than being bounced to `/login` and immediately bounced
+   back if the token turns out to be valid.
+2. **`Authenticating`, during a live login call.** This is triggered
+   explicitly inside `AuthNotifier.login()`, which sets
+   `state = AsyncData(Authenticating())` synchronously before it ever awaits
+   the network call. Here `authProvider`'s value is `AsyncData<AuthState>`
+   wrapping `Authenticating()` — the outer `AsyncValue` is *not* loading,
+   the *inner* sealed state is. The router's redirect callback sees
+   `auth.isLoading == false` (it's `AsyncData`) and `isAuthenticated == false`
+   (the value isn't `Authenticated`), so it would redirect to `/login` if
+   the user weren't already there — which they are, since login only
+   happens from the login screen. What the user actually sees is the
+   `LoginScreen`'s own `FilledButton` swap to a small
+   `CircularProgressIndicator` and become disabled, with no navigation.
+**`ref.read` vs `ref.watch` inside `redirect`**
+ 
+`appRouter`'s function body uses `ref.watch(authStateListenableProvider)`
+once, at construction time, purely to obtain the `ChangeNotifier` that is
+handed to GoRouter as `refreshListenable`. If the `redirect` *callback
+itself* used `ref.watch(authProvider)` instead of `ref.read`, every emission
+of `authProvider` would trigger two independent effects at once: GoRouter
+re-running `redirect` because `refreshListenable` fired, **and** Riverpod
+scheduling a rebuild of the `appRouter` provider itself because one of its
+watched dependencies changed. Rebuilding `appRouter` tears down and
+reconstructs the entire `GoRouter` instance — including its internal
+navigator state — which the user would experience as the whole app
+appearing to "reset": in-flight page transitions cancel, and on some Flutter
+versions the current route flashes or pops unexpectedly during what should
+have been a silent redirect check.
+ 
+These two usages don't contradict each other because they operate at
+different scopes: `ref.watch` in the *provider body* is what makes
+`appRouter` itself reactive to auth changes — exactly once, when the
+`GoRouter` is (re)built — while `ref.read` inside the *redirect closure*
+means the closure reads the current value without subscribing to it again.
+The reactivity is already fully handled by `refreshListenable`, which calls
+`redirect` for you on every auth change; asking Riverpod to *also* watch
+inside `redirect` would just double the same signal through two different
+mechanisms.
+ 
+---
+ 
+### Question 3 — The two-Dio architecture and the concurrent 401 queue
+ 
+**The infinite loop `AuthRepository` avoids**
+ 
+If `AuthRepository.login()`/`tryRefresh()` used the shared `dioProvider`
+Dio (the one with `AuthInterceptor` attached) instead of their own plain
+Dio, then `tryRefresh()`'s `POST /api/auth/refresh` would flow through
+`AuthInterceptor.onRequest` (attaching whatever access token is currently
+stored) and, on a 401, through `AuthInterceptor.onError`. Trace it:
+`tryRefresh()` calls the refresh endpoint → the refresh token is expired →
+server returns 401 → `AuthInterceptor.onError` fires → sees a 401 → checks
+whether refresh is already in progress → since this *is* a refresh attempt,
+`onError` would treat it as an ordinary failed request and attempt to
+refresh the token to retry it → which means calling the refresh endpoint
+*again* → which returns 401 again → which triggers `onError` again. Nothing
+in that cycle terminates on its own; each "fix the 401" attempt just
+produces another 401 that the same interceptor tries to fix by refreshing
+again. This is precisely why `AuthRepository` is given its own bare Dio
+with **no interceptors attached** — its calls can 401 and simply propagate
+that failure back to the caller as a `Failure`/`null`, instead of being
+caught by the very interceptor that exists to handle *other* repositories'
+401s.
+ 
+**Three simultaneous 401s and refresh token rotation**
+ 
+If three parallel API calls all 401 at the same instant (access token just
+expired) and there were no queue, all three would independently read the
+same stored refresh token and POST it to `/api/auth/refresh` at roughly the
+same time. With **refresh token rotation**, the server treats a refresh
+token as single-use: the first request to arrive rotates it into a new
+access/refresh pair and invalidates the old refresh token. The second and
+third requests arrive carrying that now-already-used refresh token, which
+the server correctly (and, from the client's confused perspective,
+unpredictably) rejects as invalid or reused — potentially even flagging it
+as a stolen-token indicator and revoking the whole session, logging the
+user out for no reason they caused.
+ 
+The `Completer<String>` queue prevents this by ensuring only **one** of the
+three ever calls the refresh endpoint. The first 401 to hit `onError` finds
+`_isRefreshing == false`, sets it to `true`, and becomes the request that
+actually performs the refresh. The second and third 401s arrive while
+`_isRefreshing` is already `true`, so instead of refreshing they each create
+a `Completer<String>`, push it onto `_queue`, and `await completer.future` —
+parking themselves rather than issuing any HTTP call. When the first
+request's refresh succeeds, it iterates `_queue`, calling
+`completer.complete(newAccessToken)` on each parked completer; that resumes
+their `await`, they attach the new token to their original failed request,
+and retry it via `retryDio.fetch(...)` — no second or third refresh call
+ever reaches the server.
+ 
+**The refresh-endpoint 401 guard**
+ 
+The guard in `onError` — checking whether the *failing* request's own path
+contains `/api/auth/refresh` — exists to catch the case where the refresh
+call itself is the one that came back 401 (the refresh token is expired or
+already rotated away). Without that guard, a failed refresh would fall
+through into the same "start a refresh" branch as any other 401: it would
+find `_isRefreshing` still `true` (since we're inside the refresh flow) or,
+after the `finally` resets it, would treat its own failure as "just another
+401 to fix" and attempt to refresh again — recreating the exact infinite
+loop described above, except now entirely inside the interceptor rather
+than in `AuthRepository`. Concretely, without the guard, a failed refresh
+would leave `_isRefreshing` stuck in an inconsistent state relative to
+`_queue` (queued completers never drained, or drained with success instead
+of the real failure) and `onUnauthenticated()` would never be invoked — so
+`authProvider` is never invalidated, `AuthNotifier` never re-runs `build()`,
+and the router's redirect never fires. The user would keep looking at a
+spinner or a silently-failing screen indefinitely, never reaching
+`/login`, even though their session had already, definitively, ended
+server-side.
+ 
+---
+ 
+### Question 4 — Logout ordering and the circular import problem
+ 
+**Why invalidate data providers before calling `logout()`**
+ 
+If `logout()` ran first, `authProvider`'s state would flip to
+`Unauthenticated` immediately, `AuthStateListenable` would call
+`notifyListeners()`, and GoRouter's `redirect` would send the user to
+`/login` on the very next frame. Riverpod then tears down the widget
+subtree that was watching `jobsNotifierProvider` (and any other
+authenticated-only provider). If a background fetch inside
+`JobsNotifier.build()`/`getJobs()` was still in flight at that moment, the
+provider is disposed mid-request: the in-flight `Future` may still complete
+afterwards and attempt to set `state` on a provider that Riverpod has
+already disposed, which either throws, is silently swallowed, or — worse —
+completes successfully and writes stale, now-logged-out-user data into the
+Isar cache just as the *next* user's session begins. Explicit invalidation
+before the redirect is safer because `ref.invalidate(jobsNotifierProvider)`
+deterministically cancels/discards that in-flight state on our own
+schedule, rather than leaving the outcome to whatever order Flutter happens
+to tear down widgets versus resolve pending Futures.
+ 
+**The circular import that a naive implementation would create**
+ 
+If invalidation logic lived inside `AuthNotifier.logout()`, `auth_notifier.dart`
+would need to import `jobs_notifier.dart` to call
+`ref.invalidate(jobsNotifierProvider)`. Trace the chain: `auth_notifier.dart`
+imports `jobs_notifier.dart` → `jobs_notifier.dart` imports
+`jobs_repository.dart` (to read `jobsRepositoryProvider` inside its
+`build()`) → `jobs_repository.dart` imports `auth_interceptor.dart` and
+`auth_provider.dart` (to attach `AuthInterceptor` to `dioProvider`) →
+`auth_provider.dart` imports `auth_notifier.dart` (to expose
+`authProvider` for the redirect bridge) — which is the file we started
+from. Dart's compiler detects this at analysis time; because Dart allows
+mutually-recursive imports (unlike some languages that hard-error), the
+practical failure shows up instead as `build_runner`/the analyzer being
+unable to resolve one or both `part` files consistently, and/or the
+generated `.g.dart` files referencing types that create unresolvable
+forward references — in practice this surfaces as analyzer errors like
+*"Type 'X' not found"* or generator failures during `build_runner build`,
+and is exactly why the assignment routes this responsibility through
+`auth_provider.dart`'s `onUnauthenticatedProvider` indirection instead,
+and why the actual invalidation call lives in the UI's logout handler
+rather than inside `AuthNotifier` itself.
+ 
+**Why `logout()` sets `AsyncData(Unauthenticated())`, not an error**
+ 
+Logging out is an intentional, successful state transition, not a failure —
+setting `AsyncError` would make `authProvider` render as an error state
+everywhere it's consumed (e.g. `auth.hasError` checks), which is
+semantically wrong and could trigger error-handling UI (retry buttons, error
+banners) for something that isn't an error at all. `Unauthenticated` wrapped
+in `AsyncData` correctly says "we successfully resolved to: logged out."
+ 
+Downstream: during the redirect, `filteredJobsProvider` (built on top of the
+now-invalidated `jobsNotifierProvider`) is torn down before the jobs screen
+itself unmounts, so it never has a chance to expose stale data to whatever
+transient frame renders during navigation to `/login`. The Isar cache,
+however, is **not** touched by `logout()` — only secure storage is cleared —
+so the raw `JobCache` rows from the previous session remain on disk. On the
+very next cold boot, if that same install is opened again,
+`AuthNotifier.build()` finds no token in secure storage and correctly
+returns `Unauthenticated`, so the router sends the user to `/login`
+regardless of what's cached. But if the *app itself* is reinstalled onto a
+**new device** where secure storage starts empty and the Isar database also
+starts empty, there's no leftover data to worry about. The scenario worth
+flagging is a single device where the *app's storage* was cleared
+selectively (e.g. only secure storage lost to an OS quirk while app data
+persists) — in that case `getCachedJobs()` would still be able to surface
+another user's previously cached job listings for a fraction of a second
+before the fresh `getJobs()` call overwrites the cache, which is why Isar
+cache invalidation on logout is called out as a Stretch-adjacent hardening
+step worth considering if CareerHub ever supports multiple accounts on one
+device.
+ 
+---
+
+
 # Assignment 2.3
 ## Part 1 - Written Decisions
 
