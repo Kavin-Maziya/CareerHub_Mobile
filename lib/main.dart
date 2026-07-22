@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'router/app_router.dart';
 
 
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -35,7 +36,7 @@ Future<void> main() async {
   );
 }
 
-class CareerHubApp extends StatelessWidget {
+class CareerHubApp extends ConsumerWidget {
   const CareerHubApp({super.key});
 
   static const _seedColor = Color(0xFF183630);
@@ -43,7 +44,7 @@ class CareerHubApp extends StatelessWidget {
   static const _cream = Color(0xFFE3DAC9);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp.router(
       title: 'CareerHub',
       theme: ThemeData(
@@ -61,7 +62,7 @@ class CareerHubApp extends StatelessWidget {
         useMaterial3: true,
       ),
       themeMode: ThemeMode.system,
-      routerConfig: appRouter,
+      routerConfig: ref.watch(appRouterProvider),
     );
   }
 }

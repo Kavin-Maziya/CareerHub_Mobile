@@ -6,6 +6,8 @@ import 'package:careerhub_mobile/providers/jobs_notifier.dart';
 import 'package:careerhub_mobile/widgets/job_card.dart';
 import 'package:careerhub_mobile/providers/filter_notifier.dart';
 import 'package:careerhub_mobile/providers/connectivity_provider.dart';
+import 'package:careerhub_mobile/providers/auth_notifier.dart';
+import 'package:careerhub_mobile/providers/jobs_notifier.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -33,9 +35,22 @@ class HomeScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CareerHub'),
-        backgroundColor: theme.colorScheme.primaryContainer,
-      ),
+  title: const Text('CareerHub'),
+  backgroundColor: theme.colorScheme.primaryContainer,
+  actions: [
+    IconButton(
+      icon: const Icon(Icons.logout),
+      tooltip: 'Logout',
+      onPressed: () async {
+        ref.invalidate(jobsNotifierProvider);
+
+        await ref
+            .read(authNotifierProvider.notifier)
+            .logout();
+      },
+    ),
+  ],
+),
       body: Column(
         children: [
           if (isOffline)
