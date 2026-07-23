@@ -7,6 +7,8 @@ import 'package:careerhub_mobile/widgets/job_card.dart';
 import 'package:careerhub_mobile/providers/filter_notifier.dart';
 import 'package:careerhub_mobile/providers/connectivity_provider.dart';
 import 'package:careerhub_mobile/providers/auth_notifier.dart';
+import 'package:careerhub_mobile/widgets/jobs_shimmer.dart';
+
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -149,7 +151,7 @@ class _JobList extends ConsumerWidget {
     final jobsAsync = ref.watch(sortedJobsProvider);
 
     return jobsAsync.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => const JobsShimmer(),
       error: (error, stackTrace) => Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
