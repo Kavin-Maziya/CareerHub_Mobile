@@ -2,6 +2,657 @@
 
 CareerHub is a job listing and application platform.
 ---
+
+# Assignment 3.1 — Advanced UI Patterns & Performance
+ 
+## Part 1 — Written Decisions
+  
+### Question 1 — The three-tree model and rebuild scope
+ 
+**Same `runtimeType` + same `key` on rebuild**
+ 
+When a parent rebuilds and produces a new widget with the same
+`runtimeType` and the same `key` as the widget currently held by an
+element, `Widget.canUpdate` returns `true` and the element **reuses
+itself** — it does not create a new `Element` and does not create a new
+`RenderObject`. What happens instead is `element.update(newWidget)`: the
+element swaps its stored `widget` reference to the new instance, and for a
+`RenderObjectElement` this flows into `RenderObject.update`, which copies
+the new widget's configuration values (text, color, padding, etc.) onto the
+*existing* `RenderObject`. Layout and paint are **not** unconditionally
+re-run — each setter on the `RenderObject` only calls `markNeedsLayout()`
+or `markNeedsPaint()` if the incoming value is actually different from what
+it already had. If every property is identical, the `RenderObject` is
+untouched and no relayout/repaint happens at all for that node.
+ 
+Contrast this with a new widget of a **different `runtimeType`** (or a
+different `key`) at the same slot: `canUpdate` returns `false`, so the
+element cannot be reused in place. The old element is deactivated,
+unmounted, and its `RenderObject` is detached and disposed; a brand-new
+`Element` and a brand-new `RenderObject` are created from scratch and
+inserted at that tree position. This forces a full layout and paint for
+that subtree from zero, and — critically — destroys any state that lived
+in the old subtree (scroll offsets, `TextEditingController` contents,
+in-progress animations, `FormBuilderState`), since there is no continuity
+between the old element and the new one.
+ 
+**What gets recreated when `HomeScreen.build()` reruns on a filter tap**
+ 
+In the current `HomeScreen`, both `ref.watch(sortedJobsProvider)` and
+`ref.watch(filterProvider)` (plus `sortOrderProvider` and
+`isOfflineProvider`) live directly in the same `ConsumerWidget.build()`
+as the `AppBar`, the logout `IconButton`, the filter `ChoiceChip` row, the
+sort `ChoiceChip` row, and the `ListView.builder`/`GridView.builder` that
+lays out every visible `JobCard`. Because Riverpod's `ref.watch` triggers a
+rebuild of the *entire enclosing widget's* `build()` method whenever any
+watched value changes, tapping a single filter chip re-runs `build()` top
+to bottom: a brand-new `AppBar` widget object is constructed, a brand-new
+`actions` list and `IconButton` are constructed, a brand-new `Column`,
+`Padding`, `Row`, and every `ChoiceChip` in both rows are constructed, and
+the `LayoutBuilder`/`ListView.builder` is reconstructed with a new
+`itemBuilder` closure that (when re-invoked for each visible index)
+constructs a new `JobCard(job: jobs[index])` widget instance for every
+currently-visible row.
+ 
+None of that is free, even though the element tree will end up reusing the
+same `RenderObject`s for the AppBar/logout button/chips (since their
+`runtimeType`+`key` haven't changed): every one of those widget object
+allocations still happens on the heap on every single filter tap, the
+element tree still has to walk down through each of those subtrees calling
+`Widget.canUpdate`/`Element.update` to confirm nothing needs to change, and
+any intermediate `StatelessWidget`/`StatefulWidget` in that path (the
+`AppBar` itself internally builds a `Row`/`NavigationToolbar`, `ChoiceChip`
+builds its own internal `Material`/`InkWell` structure) has its own
+`build()` re-invoked too. It's wasted CPU work — allocation, tree-walking,
+equality checks, nested `build()` calls — spent to arrive at "nothing
+actually needs to change here," for widgets that have no dependency at all
+on the filter state that just changed.
+ 
+**Why the extraction makes `body` const-constructable**
+ 
+Once the filter row's `ref.watch(filterProvider)` and the list's
+`ref.watch(sortedJobsProvider)` move into their own `_FilterChips` and
+`_JobList` `ConsumerWidget`s, `HomeScreen.build()` itself no longer calls
+`ref.watch` anywhere — it has no provider dependency that could ever change
+after the widget is first built, so it only ever runs once, at mount. That
+means the `Column(children: [_FilterChips(), Expanded(child: _JobList())])`
+passed to `Scaffold.body` is built from arguments (two widgets with
+no-argument `const` constructors) that are themselves compile-time
+constants — which is exactly what Dart's `const` keyword requires: every
+argument in the expression must itself be a compile-time constant.
+ 
+When the framework encounters a `const` widget instance it has already
+seen (the same canonicalized object, by reference) at the same tree
+position, it takes the fastest possible path in `Element.updateChild`: a
+straight `identical(oldWidget, newWidget)` reference check succeeds
+immediately, and the element skips calling `build()` on that subtree
+entirely, does not walk its children, and does not touch its
+`RenderObject`s — it treats that whole branch as already up to date and
+moves on.
+ 
+### Question 2 — `const` short-circuit and `RepaintBoundary` layer isolation
+ 
+**What the element does instead of diffing**
+ 
+Dart's compiler canonicalises `const` constructor invocations at compile
+time: two syntactically identical `const` expressions in the source
+produce the exact same object *instance* at runtime, not just two
+"equal" objects. When a parent rebuilds and constructs, e.g.,
+`const SizedBox(height: 8)` again, the "new" widget handed to the element
+is literally `identical()` to the one it already holds. `Element.updateChild`
+checks this identity up front; on a match it does **not** call `build()`
+on that child, does **not** run the normal widget-diffing/config-copy step,
+and does **not** mark or update the `RenderObject` in any way. The whole
+subtree under that `const` widget is skipped outright. The cost of this
+check is a single `O(1)` reference comparison, versus the cost of a full
+widget diff (and, for a non-leaf subtree, a `build()` call and diffing of
+every descendant) that would otherwise be required.
+ 
+**GPU work with vs. without `RepaintBoundary` during scroll**
+ 
+Without a `RepaintBoundary`, the scrolling list and its static siblings
+(the `AppBar`, the filter row) can end up painted into the *same*
+compositing layer. Every frame the list's content shifts, Flutter has to
+re-rasterize that entire shared layer — potentially dragging the static
+AppBar and filter chips into the same repaint even though their pixels
+haven't changed. With a `RepaintBoundary` wrapping just the scroll view,
+that subtree gets its **own** compositing layer with its own cached
+raster/texture. The mechanism that lets the GPU skip re-rasterizing an
+unchanged layer is **layer caching in the compositor** — each frame,
+Flutter only has to regenerate the texture for layers whose content
+actually changed (`markNeedsPaint` was called within that boundary);
+layers outside the boundary that received no repaint request are simply
+recomposited using their already-cached bitmap, with no redraw cost.
+ 
+The memory cost is that **every `RepaintBoundary` allocates its own
+offscreen bitmap/texture** sized to its bounds, held in graphics memory for
+as long as the boundary exists in the tree — this is not free even while
+the boundary's content is static; it's a standing memory cost paid once per
+boundary added, in exchange for avoiding repeated rasterization work.
+ 
+**Two scenarios where a `RepaintBoundary` would be wrong or wasteful**
+ 
+1. **A widget that changes on every single frame** — for example, a
+   continuously animating progress indicator or a live countdown that
+   repaints every frame regardless. A `RepaintBoundary` around it buys
+   nothing, because the cached texture is invalidated and has to be
+   regenerated on every frame anyway — you pay for the extra compositing
+   layer and its offscreen memory with zero caching benefit, since there's
+   never a "next frame where it doesn't need to repaint."
+2. **Wrapping many small, frequently created/destroyed widgets
+   individually** — e.g. putting a `RepaintBoundary` around every single
+   `JobCard` inside a `ListView.builder`, rather than one boundary around
+   the list as a whole. Each boundary needs its own offscreen allocation;
+   as `ListView.builder` constantly creates and disposes card widgets while
+   scrolling, this means constantly allocating and tearing down GPU-backed
+   layers — more overhead than simply letting the cards share one
+   `PictureLayer` with their static siblings via a single boundary at the
+   list level.
+### Question 3 — The hooks model and controller lifecycle
+ 
+**Hook ordering failure mode**
+ 
+Hooks are stored in a plain, index-ordered list on the element — the
+framework identifies "which hook is this" purely by its position in the
+call sequence of a given `build()`, not by any name or field. If
+`useTextEditingController()` is wrapped in an `if` whose condition changes
+between two consecutive builds, the hook that used to sit at, say, index 0
+on one build is either missing or replaced by a different hook on the next
+build, while the framework is still expecting the same hook type/state at
+that slot. `flutter_hooks` detects this mismatch and throws an assertion
+error at runtime (the hooks framework's own "hooks must be called
+unconditionally, the same number of times, in the same order on every
+build" invariant is violated) — this is not a silent bug, it surfaces
+immediately as a hard crash: the user sees the app's error screen (a red
+screen / exception dialog) on the very frame where the condition flips,
+rather than any kind of graceful degradation.
+ 
+**`TextEditingController` field fragility vs. `useTextEditingController()`**
+ 
+A `TextEditingController` declared as a plain field on a `State` class is
+just an object reference — nothing in the language or framework forces you
+to release it. If a developer forgets to override `dispose()` (or forgets
+to call `controller.dispose()` inside an existing override), the
+controller — along with its internal `ChangeNotifier` listener list and
+any native text-editing resources it holds — is never released when the
+widget is removed from the tree. It leaks for the remaining lifetime of the
+app, and if anything is still listening to it, that listener can fire
+against a widget/context that no longer exists. `useTextEditingController()`
+avoids this entirely because the *hook itself* owns the disposal guarantee:
+the hook framework's `Hook` lifecycle calls the hook's own `dispose()`
+(inside `flutter_hooks`' internal `_HookState.dispose()`/`HookElement`
+unmount sequence) automatically whenever the enclosing `HookConsumerWidget`'s
+element is unmounted — the developer never writes a `dispose()` override at
+all, because the guarantee lives inside the hook's implementation, not in
+code the call site has to remember to write.
+ 
+**`GlobalKey<FormBuilderState>` without `useMemoized`**
+ 
+If `GlobalKey<FormBuilderState>()` is a plain local variable inside
+`build()` instead of being wrapped in `useMemoized()`, a brand-new
+`GlobalKey` instance is allocated on **every** rebuild of `ApplyScreen` —
+any rebuild at all, triggered by anything the screen watches. Since
+`GlobalKey` identity is exactly how the element tree recognises "this is
+the same logical widget across rebuilds" (`Element.updateChild` consults
+the global key registry to decide whether to reparent an existing element
+or treat it as new), handing the `FormBuilder` a different key value every
+build makes the framework conclude the `FormBuilder` at this position is a
+*different* widget than the one currently mounted. It deactivates and
+disposes the entire old `FormBuilder` element/subtree — discarding its
+`FormBuilderState`, its fields' focus state, and any values the user had
+already typed — and mounts a brand-new `FormBuilder` under the new key at
+the same slot. The user-visible symptom is the form appearing to silently
+reset/clear itself on any rebuild (for instance, the moment the on-screen
+keyboard opens and triggers a `MediaQuery` change, or any watched provider
+re-emits). Wrapping the key creation in
+`useMemoized(() => GlobalKey<FormBuilderState>())` ensures the callback
+only executes on the very first build, and the exact same `GlobalKey`
+instance is returned — unchanged — on every subsequent build, keeping the
+`FormBuilder`'s identity, and therefore its state, stable across rebuilds.
+ 
+### Question 4 — `FormBuilder` state and cross-field validation
+ 
+**Why `save()` runs before `validate()`**
+ 
+Each `FormBuilderField` keeps the user's live, currently-typed value inside
+its own internal widget state as they type — that's what drives what's
+rendered on screen. The centralized `FormBuilderState.value` map that
+validators and the calling code read from is a separate snapshot that is
+only populated when each field reports its current value back up to the
+parent `FormBuilderState`. `save()` is exactly the step that walks every
+registered field and pulls its live on-screen value into that centralized
+snapshot. If `validate()` ran *before* `save()`, cross-field/custom
+validators — like the earliest-start-date validator that compares the
+selected `DateTime` against `DateTime.now()` — would be checking whatever
+was captured into the centralized state during a previous save (possibly
+`null`, or a stale value from an earlier validation pass), not what the
+user currently has selected in the date picker. That can silently pass
+(a `null` value not being treated as "in the past" by a validator that only
+checks `DateTime` comparisons) or validate an already-stale date that
+happens to still be in the future even though the user has since picked an
+earlier one on screen.
+ 
+**Why `required()` must be first in `compose()`**
+ 
+`compose()` runs its validator list in order and stops at the first
+non-null (failing) result. If `FormBuilderValidators.minLength(50)` ran
+*before* `required()` against an empty cover-letter field, `minLength(50)`
+would receive an empty string, immediately fail because `''.length` is `0`,
+and surface its own message ("must be at least 50 characters") — a
+confusing, misleading error for a field the user simply hasn't typed into
+yet, framed as "too short" rather than "required." Putting `required()`
+first guarantees an empty field is caught and reported as *missing*, before
+any content-shape validator (`minLength`, `email`, `url`, etc.) ever gets a
+chance to inspect — and potentially misreport on — an empty value.
+ 
+**Three-case portfolio URL validator**
+ 
+The validator for the optional portfolio URL field must handle:
+ 
+1. **Empty/`null`** → return `null` (valid — there's nothing to validate,
+   and the field isn't required).
+2. **Non-empty, valid URL** → delegate to
+   `FormBuilderValidators.url()(value)`, which returns `null`.
+3. **Non-empty, not a valid URL** → delegate to
+   `FormBuilderValidators.url()(value)`, which returns its format-error
+   string, which the composed validator returns as-is.
+Applying `FormBuilderValidators.url()` directly with no guard for the empty
+case is wrong because `url()` has no special case for "empty means this
+optional field was left untouched" — it simply checks whether the string
+matches a URL pattern, and an empty string does not, so it returns its
+error message and incorrectly blocks submission for a field the user was
+never required to fill in.
+
+---
+
+## Assignment 2.4 — Authentication and Secure API Flow
+ 
+**Written decisions dated:** 2026-07-23
+ 
+---
+ 
+## Part 1 — Written Decisions
+ 
+### Question 1 — Token storage and platform security boundaries
+ 
+**Why access/refresh tokens cannot live in SharedPreferences**
+ 
+On Android, `SharedPreferences` writes a plain XML file to
+`/data/data/<package_name>/shared_prefs/<file_name>.xml` inside the app's
+private data directory. Under normal circumstances this file is protected
+only by Linux discretionary access control — the directory is created with
+mode `700` and the file with mode `660`, owned by the app's unique UID, so
+another *installed app* cannot open it through the normal filesystem APIs.
+That protection is about process isolation, not encryption: the token sits
+on disk as readable UTF-8 text with no cryptographic protection at all.
+ 
+The concrete attack does not require root. Two ordinary channels expose the
+file even on a stock, non-rooted device:
+ 
+1. **`adb backup` / USB debugging.** If the device has USB debugging enabled
+   (common on developer or test devices, and trivial to enable if the phone
+   is briefly unattended) and the app has not explicitly set
+   `android:allowBackup="false"`, `adb backup` can pull the entire app data
+   directory — including `shared_prefs/*.xml` — to a connected computer with
+   no root and no exploit, just a USB cable and an unlocked screen.
+2. **Android Auto Backup to Google Drive.** By default, Android backs up app
+   data (again including `shared_prefs`) to the user's Google Drive. Anyone
+   who gains access to that Google account — via a phishing page, a reused
+   password, or a session token from an unrelated breach — can restore the
+   backup onto an attacker-controlled device and read the tokens directly
+   out of the XML file, without ever touching the victim's phone.
+Either path hands an attacker the raw access and refresh tokens, which is
+equivalent to full account takeover until the tokens are revoked
+server-side. Neither path requires cracking anything, because
+`SharedPreferences` never encrypted the data in the first place.
+ 
+**What the iOS Keychain provides that a file on disk does not**
+ 
+`flutter_secure_storage` stores tokens in the iOS Keychain rather than in a
+plist or a file. The Keychain gives two protections a raw file never has:
+ 
+- **Passcode-tied encryption.** Keychain items are encrypted with keys
+  derived from the device passcode (combined with a device-specific UID
+  key). A file written to the app sandbox has no such gate — anything that
+  can read the sandbox can read the file's bytes.
+- **Hardware-backed key storage (Secure Enclave).** On devices with a Secure
+  Enclave, the cryptographic keys protecting Keychain items can be generated
+  and used *inside* that isolated co-processor. The key material never
+  enters the main OS's address space, so even a full jailbreak of the
+  primary kernel does not expose the raw key.
+`kSecAttrAccessibleWhenUnlocked` only permits access while the device is
+actively unlocked at the moment of the read — the strictest option, but it
+blocks background code (e.g. a background token refresh) whenever the phone
+is locked. `kSecAttrAccessibleAfterFirstUnlock` permits access any time
+after the user has unlocked the device once since the last reboot, even if
+they subsequently lock it again — this is what lets a background process
+refresh a token while the phone sits locked in a pocket.
+ 
+If tokens must survive an app **reinstall**, `kSecAttrAccessibleAfterFirstUnlock`
+is the right choice. Keychain items are not tied to the app's binary or its
+sandbox the way `SharedPreferences`/`UserDefaults` are — deleting and
+reinstalling the app does not clear them (they are only cleared on request
+or when the device is wiped). Choosing `AfterFirstUnlock` means the
+just-reinstalled app can read the previously stored token immediately on
+first launch without requiring the device to be unlocked at that *exact*
+instant, which matters if the reinstall is triggered by an MDM push or a
+background App Store update rather than a manual, unlocked launch.
+ 
+**Why `minSdkVersion` must be 23**
+ 
+`flutter_secure_storage` uses `EncryptedSharedPreferences` on Android, which
+wraps the ordinary `SharedPreferences` file with AES-256 encryption for both
+keys and values (via the Jetpack Security / Tink implementation), instead of
+writing plaintext XML. The master key that performs that encryption is
+generated and held by the **Android Keystore system**, whose modern
+key-generation API (`KeyGenParameterSpec` /
+`KeyGenParameterSpec.Builder`) was introduced in **API level 23 (Android
+6.0, Marshmallow)**.
+ 
+Below API 23 the `KeyGenParameterSpec` class simply does not exist on the
+device, so the very first attempt to create or access a key throws at
+runtime — not at compile time — with `java.lang.NoClassDefFoundError`
+(reported by the runtime as *"Could not find class
+'android.security.keystore.KeyGenParameterSpec$Builder'"*). The app builds
+and installs cleanly on an API 21/22 device; it only crashes the first time
+`flutter_secure_storage` tries to touch the Keystore. This is exactly why
+`android/app/build.gradle`'s `minSdkVersion` was raised to 23 in Part 2 —
+the Gradle build system has no way to catch this at compile time, since the
+missing class only fails to resolve at the device's actual runtime.
+ 
+---
+ 
+### Question 2 — The sealed `AuthState` and the two-layer state machine
+ 
+**Why an enum is insufficient**
+ 
+A Dart `enum` can only represent a fixed set of *labels* — it cannot attach
+a differently-typed payload to each case. `Authenticated` needs to carry a
+`User` object and `AuthError` needs to carry a `String` message; an enum
+value like `AuthStatus.authenticated` has nowhere to hold that data, so the
+codebase would have to bolt on nullable side-fields (`User? currentUser`,
+`String? errorMessage`) next to the enum and hope every reader remembers
+which fields are valid for which case. Nothing enforces that discipline —
+it is entirely possible to end up with `AuthStatus.unauthenticated` paired
+with a stale `errorMessage` still set from three logins ago.
+ 
+A `sealed class` fixes this because each subtype **is** its payload.
+`Authenticated` *has* a `User user` field that only exists when you are
+looking at an `Authenticated` instance; `AuthError` *has* a `String message`
+field that only exists on `AuthError`. Combined with Dart 3 pattern
+matching (`switch (state) { Authenticated(:final user) => ..., AuthError(:final message) => ... }`),
+the compiler enforces exhaustiveness — if a fifth subtype were ever added,
+every `switch` handling `AuthState` would fail to compile until it was
+updated — and it is structurally impossible to read `user` off an
+`AuthError` or vice-versa, which an enum-plus-nullable-fields design cannot
+guarantee.
+ 
+**The two distinct loading states**
+ 
+1. **`AsyncValue` loading, at cold boot.** This is triggered the moment
+   `AuthNotifier.build()` starts running — before it has read anything from
+   secure storage. `authProvider`'s value is `AsyncLoading<AuthState>`.
+   During this window the router's `redirect` callback checks
+   `auth.isLoading` and returns `null` — it deliberately does *not*
+   redirect. The user sees whatever the router's `initialLocation` renders
+   mid-load (in this app, a brief flash of the jobs route's own loading
+   state) rather than being bounced to `/login` and immediately bounced
+   back if the token turns out to be valid.
+2. **`Authenticating`, during a live login call.** This is triggered
+   explicitly inside `AuthNotifier.login()`, which sets
+   `state = AsyncData(Authenticating())` synchronously before it ever awaits
+   the network call. Here `authProvider`'s value is `AsyncData<AuthState>`
+   wrapping `Authenticating()` — the outer `AsyncValue` is *not* loading,
+   the *inner* sealed state is. The router's redirect callback sees
+   `auth.isLoading == false` (it's `AsyncData`) and `isAuthenticated == false`
+   (the value isn't `Authenticated`), so it would redirect to `/login` if
+   the user weren't already there — which they are, since login only
+   happens from the login screen. What the user actually sees is the
+   `LoginScreen`'s own `FilledButton` swap to a small
+   `CircularProgressIndicator` and become disabled, with no navigation.
+**`ref.read` vs `ref.watch` inside `redirect`**
+ 
+`appRouter`'s function body uses `ref.watch(authStateListenableProvider)`
+once, at construction time, purely to obtain the `ChangeNotifier` that is
+handed to GoRouter as `refreshListenable`. If the `redirect` *callback
+itself* used `ref.watch(authProvider)` instead of `ref.read`, every emission
+of `authProvider` would trigger two independent effects at once: GoRouter
+re-running `redirect` because `refreshListenable` fired, **and** Riverpod
+scheduling a rebuild of the `appRouter` provider itself because one of its
+watched dependencies changed. Rebuilding `appRouter` tears down and
+reconstructs the entire `GoRouter` instance — including its internal
+navigator state — which the user would experience as the whole app
+appearing to "reset": in-flight page transitions cancel, and on some Flutter
+versions the current route flashes or pops unexpectedly during what should
+have been a silent redirect check.
+ 
+These two usages don't contradict each other because they operate at
+different scopes: `ref.watch` in the *provider body* is what makes
+`appRouter` itself reactive to auth changes — exactly once, when the
+`GoRouter` is (re)built — while `ref.read` inside the *redirect closure*
+means the closure reads the current value without subscribing to it again.
+The reactivity is already fully handled by `refreshListenable`, which calls
+`redirect` for you on every auth change; asking Riverpod to *also* watch
+inside `redirect` would just double the same signal through two different
+mechanisms.
+ 
+---
+ 
+### Question 3 — The two-Dio architecture and the concurrent 401 queue
+ 
+**The infinite loop `AuthRepository` avoids**
+ 
+If `AuthRepository.login()`/`tryRefresh()` used the shared `dioProvider`
+Dio (the one with `AuthInterceptor` attached) instead of their own plain
+Dio, then `tryRefresh()`'s `POST /api/auth/refresh` would flow through
+`AuthInterceptor.onRequest` (attaching whatever access token is currently
+stored) and, on a 401, through `AuthInterceptor.onError`. Trace it:
+`tryRefresh()` calls the refresh endpoint → the refresh token is expired →
+server returns 401 → `AuthInterceptor.onError` fires → sees a 401 → checks
+whether refresh is already in progress → since this *is* a refresh attempt,
+`onError` would treat it as an ordinary failed request and attempt to
+refresh the token to retry it → which means calling the refresh endpoint
+*again* → which returns 401 again → which triggers `onError` again. Nothing
+in that cycle terminates on its own; each "fix the 401" attempt just
+produces another 401 that the same interceptor tries to fix by refreshing
+again. This is precisely why `AuthRepository` is given its own bare Dio
+with **no interceptors attached** — its calls can 401 and simply propagate
+that failure back to the caller as a `Failure`/`null`, instead of being
+caught by the very interceptor that exists to handle *other* repositories'
+401s.
+ 
+**Three simultaneous 401s and refresh token rotation**
+ 
+If three parallel API calls all 401 at the same instant (access token just
+expired) and there were no queue, all three would independently read the
+same stored refresh token and POST it to `/api/auth/refresh` at roughly the
+same time. With **refresh token rotation**, the server treats a refresh
+token as single-use: the first request to arrive rotates it into a new
+access/refresh pair and invalidates the old refresh token. The second and
+third requests arrive carrying that now-already-used refresh token, which
+the server correctly (and, from the client's confused perspective,
+unpredictably) rejects as invalid or reused — potentially even flagging it
+as a stolen-token indicator and revoking the whole session, logging the
+user out for no reason they caused.
+ 
+The `Completer<String>` queue prevents this by ensuring only **one** of the
+three ever calls the refresh endpoint. The first 401 to hit `onError` finds
+`_isRefreshing == false`, sets it to `true`, and becomes the request that
+actually performs the refresh. The second and third 401s arrive while
+`_isRefreshing` is already `true`, so instead of refreshing they each create
+a `Completer<String>`, push it onto `_queue`, and `await completer.future` —
+parking themselves rather than issuing any HTTP call. When the first
+request's refresh succeeds, it iterates `_queue`, calling
+`completer.complete(newAccessToken)` on each parked completer; that resumes
+their `await`, they attach the new token to their original failed request,
+and retry it via `retryDio.fetch(...)` — no second or third refresh call
+ever reaches the server.
+ 
+**The refresh-endpoint 401 guard**
+ 
+The guard in `onError` — checking whether the *failing* request's own path
+contains `/api/auth/refresh` — exists to catch the case where the refresh
+call itself is the one that came back 401 (the refresh token is expired or
+already rotated away). Without that guard, a failed refresh would fall
+through into the same "start a refresh" branch as any other 401: it would
+find `_isRefreshing` still `true` (since we're inside the refresh flow) or,
+after the `finally` resets it, would treat its own failure as "just another
+401 to fix" and attempt to refresh again — recreating the exact infinite
+loop described above, except now entirely inside the interceptor rather
+than in `AuthRepository`. Concretely, without the guard, a failed refresh
+would leave `_isRefreshing` stuck in an inconsistent state relative to
+`_queue` (queued completers never drained, or drained with success instead
+of the real failure) and `onUnauthenticated()` would never be invoked — so
+`authProvider` is never invalidated, `AuthNotifier` never re-runs `build()`,
+and the router's redirect never fires. The user would keep looking at a
+spinner or a silently-failing screen indefinitely, never reaching
+`/login`, even though their session had already, definitively, ended
+server-side.
+ 
+---
+ 
+### Question 4 — Logout ordering and the circular import problem
+ 
+**Why invalidate data providers before calling `logout()`**
+ 
+If `logout()` ran first, `authProvider`'s state would flip to
+`Unauthenticated` immediately, `AuthStateListenable` would call
+`notifyListeners()`, and GoRouter's `redirect` would send the user to
+`/login` on the very next frame. Riverpod then tears down the widget
+subtree that was watching `jobsNotifierProvider` (and any other
+authenticated-only provider). If a background fetch inside
+`JobsNotifier.build()`/`getJobs()` was still in flight at that moment, the
+provider is disposed mid-request: the in-flight `Future` may still complete
+afterwards and attempt to set `state` on a provider that Riverpod has
+already disposed, which either throws, is silently swallowed, or — worse —
+completes successfully and writes stale, now-logged-out-user data into the
+Isar cache just as the *next* user's session begins. Explicit invalidation
+before the redirect is safer because `ref.invalidate(jobsNotifierProvider)`
+deterministically cancels/discards that in-flight state on our own
+schedule, rather than leaving the outcome to whatever order Flutter happens
+to tear down widgets versus resolve pending Futures.
+ 
+**The circular import that a naive implementation would create**
+ 
+If invalidation logic lived inside `AuthNotifier.logout()`, `auth_notifier.dart`
+would need to import `jobs_notifier.dart` to call
+`ref.invalidate(jobsNotifierProvider)`. Trace the chain: `auth_notifier.dart`
+imports `jobs_notifier.dart` → `jobs_notifier.dart` imports
+`jobs_repository.dart` (to read `jobsRepositoryProvider` inside its
+`build()`) → `jobs_repository.dart` imports `auth_interceptor.dart` and
+`auth_provider.dart` (to attach `AuthInterceptor` to `dioProvider`) →
+`auth_provider.dart` imports `auth_notifier.dart` (to expose
+`authProvider` for the redirect bridge) — which is the file we started
+from. Dart's compiler detects this at analysis time; because Dart allows
+mutually-recursive imports (unlike some languages that hard-error), the
+practical failure shows up instead as `build_runner`/the analyzer being
+unable to resolve one or both `part` files consistently, and/or the
+generated `.g.dart` files referencing types that create unresolvable
+forward references — in practice this surfaces as analyzer errors like
+*"Type 'X' not found"* or generator failures during `build_runner build`,
+and is exactly why the assignment routes this responsibility through
+`auth_provider.dart`'s `onUnauthenticatedProvider` indirection instead,
+and why the actual invalidation call lives in the UI's logout handler
+rather than inside `AuthNotifier` itself.
+ 
+**Why `logout()` sets `AsyncData(Unauthenticated())`, not an error**
+ 
+Logging out is an intentional, successful state transition, not a failure —
+setting `AsyncError` would make `authProvider` render as an error state
+everywhere it's consumed (e.g. `auth.hasError` checks), which is
+semantically wrong and could trigger error-handling UI (retry buttons, error
+banners) for something that isn't an error at all. `Unauthenticated` wrapped
+in `AsyncData` correctly says "we successfully resolved to: logged out."
+ 
+Downstream: during the redirect, `filteredJobsProvider` (built on top of the
+now-invalidated `jobsNotifierProvider`) is torn down before the jobs screen
+itself unmounts, so it never has a chance to expose stale data to whatever
+transient frame renders during navigation to `/login`. The Isar cache,
+however, is **not** touched by `logout()` — only secure storage is cleared —
+so the raw `JobCache` rows from the previous session remain on disk. On the
+very next cold boot, if that same install is opened again,
+`AuthNotifier.build()` finds no token in secure storage and correctly
+returns `Unauthenticated`, so the router sends the user to `/login`
+regardless of what's cached. But if the *app itself* is reinstalled onto a
+**new device** where secure storage starts empty and the Isar database also
+starts empty, there's no leftover data to worry about. The scenario worth
+flagging is a single device where the *app's storage* was cleared
+selectively (e.g. only secure storage lost to an OS quirk while app data
+persists) — in that case `getCachedJobs()` would still be able to surface
+another user's previously cached job listings for a fraction of a second
+before the fresh `getJobs()` call overwrites the cache, which is why Isar
+cache invalidation on logout is called out as a Stretch-adjacent hardening
+step worth considering if CareerHub ever supports multiple accounts on one
+device.
+ 
+---
+
+
+# Assignment 2.3
+## Part 1 - Written Decisions
+
+### Question 1 — The two persistence mechanisms and why they are not interchangeable
+
+**Why the jobs list can't live in SharedPreferences:** 
+- SharedPreferences only stores String, bool, int, double, and List<String> and List<Job> isn't any of those, so every write would require manually calling jsonEncode(jobs.map((j) => j.toJson()).toList()) first, and every read would require jsonDecode(...) followed by re-mapping each raw map back into a Job via Job.fromDto(JobDto.fromJson(...)). That decode step runs synchronously on the main isolate which drives the UI's frame rendering. 
+- If the user navigates to the jobs screen at the exact moment a large cached list is being JSON-decoded, that decode blocks the main isolate until it finishes, which means Flutter can't process touch input, can't render a new frame, and can't respond to the navigation itself — the app visibly freezes for the duration of the decode, precisely because "small key-value pairs" was never designed to carry a structured, potentially-large list.
+
+**Why the jobs list can't be an arbitrary List<Job> in Isar without a schema class:**
+- The @collection annotation and Isar's code generator are producing the actual binary storage layout and native query bindings for a class — a fixed byte offset for each field, an auto-incrementing Id primary key, and generated IsarCollection<T> accessor methods (.where(), .filter(), .put(), etc.) that map directly onto Isar's native storage engine. 
+- A plain Dart class has none of this — Isar has no way to know how to serialize an arbitrary object's fields into its binary format, what the primary key is, or how to build a queryable index, without the generator reading an @collection-annotated class declaration first.
+
+**Why this requires a third class, not annotating Job or JobDto:**
+- Job is @freezed, and Freezed's const factory constructor pattern means every field is a final, immutable property implemented by a generated, hidden class (_Job) — but Isar's generator requires every persisted field to be declared late (mutable, settable after construction), since Isar's native binary deserialization populates a schema object's fields after construction, not through a constructor call.
+- @freezed and @collection are structurally incompatible on the same class: one demands immutable, constructor-populated fields, and the other demands mutable post-construction-populated fields. JobDto has the same problem, plus it's already carrying the API's exact camelCase JSON shape — mixing that with Isar's own storage concerns would blur "this class mirrors the network response" with "this class is a database row," the same kind of concern-mixing the DTO/domain split already exists to prevent.
+
+
+### Question 2 — Isar's type limitations and your conversion strategy
+
+**The enum:** Job.employmentType is an EmploymentType enum (fullTime, partTime, contract, internship). Since Isar 3.x has no native enum support, the schema class (JobCache) will store it as a plain String — employmentType.name and reconstruct it on read via EmploymentType.values.firstWhere((e) => e.name == cache.employmentType, orElse: () => EmploymentType.fullTime). fullTime is the fallback when a stored string doesn't match any current enum case. A fallback is required, rather than letting the lookup throw, because the cache is written by a previous version of the app — if a future release ever renames or removes an EmploymentType value, old cached rows would contain a string that no longer matches anything, and without a fallback, reading the cache would throw a StateError and crash the exact code path (getCachedJobs()) that's supposed to be the reliable, guaranteed-to-work fallback when the network has already failed. A crash in the safety net defeats its entire purpose.
+
+**The DateTime field:** Job.closingDate is a nullable DateTime. Isar 3.x supports DateTime natively, storing it in its own binary format rather than requiring conversion to an int of epoch milliseconds. This is meaningfully safer than manually storing closingDate.millisecondsSinceEpoch because of time zone handling: DateTime.now() and API-parsed DateTime values in Dart carry an explicit UTC-or-local flag, and Isar's native DateTime storage preserves that distinction through serialization and back. If a developer instead stored a raw epoch integer, and even one code path reconstructed it via DateTime.fromMillisecondsSinceEpoch(epoch) (which defaults to local time) while the original value had been UTC (or vice versa), the reconstructed DateTime would be silently shifted by the device's UTC offset — a job with a closing date of 2026-07-24 23:00 UTC could be read back and displayed as 2026-07-25 on a device several hours ahead of UTC, with no exception thrown anywhere to reveal the bug. Isar's native DateTime support avoids this entire class of error by never round-tripping through a bare integer in the first place.
+
+### Question 3 — Initialization order and the provider override pattern
+
+**What WidgetsFlutterBinding.ensureInitialized() does, and why it must come first:**
+- It creates and installs the WidgetsBinding singleton, which in turn establishes Flutter's platform channel mechanism — the message-passing bridge that lets Dart code call into native platform code (and vice versa).
+- path_provider's getApplicationDocumentsDirectory() and SharedPreferences.getInstance() both work by sending a method-channel message to native Android/iOS/Windows code and awaiting a native response; that channel simply doesn't exist until the binding is created. If getApplicationDocumentsDirectory() (or any platform-channel call) is invoked before ensureInitialized(), the exact error thrown is:
+
+*Binding has not yet been initialized.:* a FlutterError (or, depending on the specific call path, an AssertionError/StateError wrapping that same message) raised by Flutter's own binding-assertion checks, precisely because the channel the call needs doesn't exist yet.
+
+**Why the placeholder providers throw instead of returning null/a default:**
+- A throw produces an immediate, loud, descriptive failure at the exact call site where the mistake occurred — the error message names the provider and says exactly what needs overriding.
+- Returning null or a silent placeholder default would let the mistake propagate — a null Isar instance might not fail until three calls deeper, inside getCachedJobs(), producing a confusing NoSuchMethodError far from the actual root cause (forgetting the override in main()). This mirrors Dart's own late keyword philosophy: "I am promising this will have a real value before anyone reads it" — and a broken promise should fail immediately and explain itself, not degrade gracefully into a harder-to-diagnose bug later.
+
+**Override timing in the ProviderScope lifecycle:** overrideWithValue installs its value into the provider container synchronously, as part of constructing the ProviderScope widget itself — before that widget (or anything beneath it) ever builds a single frame.
+- Since runApp(ProviderScope(overrides: [...], child: ...)) only executes after main() has already awaited Isar.open() and SharedPreferences.getInstance() to completion, by the time any widget's build() method runs and calls ref.watch(isarProvider), the override is already fully in place. So yes — if a provider's build() synchronously calls ref.watch(isarProvider), the override is visible at that exact moment, because the entire override list is applied before the widget tree is constructed at all, not lazily as each provider happens to be read.
+
+**Two disadvantages of a lazy FutureProvider<Isar> (calling Isar.open() on first read) instead:**
+1. Compile-time-invisible ordering bug: any widget that happens to be the first to read the provider triggers the actual disk-opening Future at an unpredictable moment during the widget tree's build — if two different providers both lazily depend on Isar and are read in a different order across builds, you could get a Future that's still pending exactly when a synchronous-looking code path (like FilterNotifier.build(), which is written to work purely synchronously against prefsProvider) assumes it already has a resolved value; this ordering problem is invisible to flutter analyze, since the types all check out — it's a purely runtime timing failure.
+2. Every consumer becomes async-shaped for no reason: since a FutureProvider<Isar> exposes AsyncValue<Isar> rather than a plain Isar, every single provider or widget that needs Isar (the jobs repository, the applications repository, anything future) would need to unwrap an AsyncValue and handle a loading/error state that, in reality, only ever occurs once, for a fraction of a second, at app startup — needless complexity spreads to every consumer instead of being resolved once in main().
+
+### Question 4 — The cache-then-network contract with Riverpod's state machine
+
+**The three state transitions during build():**
+
+- **Before build() starts → immediately after build() is first called:** AsyncValue is AsyncLoading(). This is Riverpod's default state the instant a provider starts computing and hasn't produced any value yet — caused simply by build() having started executing (specifically, by the fact that no state = ... assignment has happened yet). The widget's .when() renders the CircularProgressIndicator; the ListView is not visible.
+
+- **After getCachedJobs() returns a non-empty list → the state = AsyncData(cachedJobs) line executes:** AsyncValue transitions from AsyncLoading() to AsyncData(cachedJobs). This line is the direct cause. The widget rebuilds immediately — the spinner disappears and the ListView renders the cached jobs, even though build() itself is still running (it hasn't returned yet).
+
+- **After getJobs() (the network call) resolves and build() finally returns:** AsyncValue transitions from AsyncData(cachedJobs) to AsyncData(freshJobs) (on Success) or, on Failure with a non-empty cache, effectively stays at AsyncData(cachedJobs) (since the function returns the same cached list again) — or, only if the cache was empty, transitions to AsyncError(exception). The return statement at the end of build() is what causes this. In the success/cache-preserved cases, the widget simply re-renders the (possibly updated) ListView — no spinner reappears, since Riverpod doesn't revert to AsyncLoading mid-flight once real data has been assigned.
+
+**What would happen if the Failure arm threw instead of returning the cache:** 
+- filteredJobsProvider derives its value by calling ref.watch(jobsProvider) (the raw notifier) and applying .whenData(...) to transform it. If jobsNotifier's build() threw an Exception instead of returning the cached list, the underlying jobsProvider's AsyncValue would become AsyncError(exception, stackTrace) — and since .whenData() only transforms the data case, passing loading/error through unchanged, filteredJobsProvider would also expose AsyncError.
+- The jobs screen's .when() call would then render its error branch — the icon, message, and retry button — even though perfectly good, previously-cached data exists and could have been shown. Throwing would only be the more correct choice if the cache is genuinely empty — i.e., there's truly nothing useful to show the user, and an honest error state (rather than a blank screen) is the right response.
+
+**isOfflineProvider's state on a cold boot when already offline:** connectivity_plus's stream does not emit on subscription — it only emits when connectivity changes.
+- This means at the moment the jobs screen first renders after a cold boot with the device already offline, connectivityStreamProvider's AsyncValue is still AsyncLoading() (no event has arrived yet), and per the isOfflineProvider implementation (loading and error arms both return false), isOfflineProvider reports false — the offline banner does not appear on that very first frame, even though the device genuinely has no connectivity.
+- *This is an acceptable trade-off, not a bug to fix, because:*
+1. the banner is a secondary, informational affordance, not something gating functionality — the cached jobs list still renders correctly regardless of what the banner shows; 
+2. the window of incorrectness is extremely short-lived — the platform typically emits the current connectivity state within the same frame or the next, at which point the banner catches up;
+3. building a more "correct" initial-state check (e.g., an eager one-shot connectivity poll before the stream subscribes) would add real complexity and a second connectivity-checking code path purely to eliminate a sub-second, cosmetic delay in a non-blocking UI element.
+
+---
 # Assignment 2.2  Immutable Models, Dart 3 & Freezed
 
 ## Question 1 — The equality problem in your running app

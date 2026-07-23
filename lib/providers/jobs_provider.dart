@@ -17,7 +17,7 @@ final sortOrderProvider = StateProvider<String>((ref) => 'A-Z');
 final filteredJobsProvider = Provider<AsyncValue<List<Job>>>((ref) {
   final asyncJobs = ref.watch(jobsProvider);
 
-final filter = ref.watch(filterNotifierProvider);
+final filter = ref.watch(filterProvider);
 
   return asyncJobs.whenData((jobs) {
     return switch (filter) {
