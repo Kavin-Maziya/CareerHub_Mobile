@@ -1,35 +1,27 @@
 import 'package:careerhub_mobile/models/auth_state.dart';
 import 'package:careerhub_mobile/providers/auth_notifier.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-class LoginScreen extends ConsumerStatefulWidget {
+
+class LoginScreen extends HookConsumerWidget {
+
   const LoginScreen({super.key});
-
+ 
   @override
-  ConsumerState<LoginScreen> createState() => _LoginScreenState();
+Widget build(BuildContext context, WidgetRef ref) {
+
+  final emailController = useTextEditingController();
+final passwordController = useTextEditingController();
+
+Future<void> submit() async {
+  await ref.read(authProvider.notifier).login(
+        emailController.text.trim(),
+        passwordController.text,
+      );
 }
-
-class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    await ref.read(authProvider.notifier).login(
-          _emailController.text.trim(),
-          _passwordController.text,
-        );
-  }
-
-  @override
-  Widget build(BuildContext context) {
+    
     final auth = ref.watch(authProvider);
 
     final isLoading = auth is AsyncData<AuthState> &&
@@ -82,7 +74,7 @@ if (auth is AsyncData<AuthState>) {
                   const SizedBox(height: 40),
 
                   TextField(
-                    controller: _emailController,
+                    controller: emailController,
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
@@ -95,10 +87,10 @@ if (auth is AsyncData<AuthState>) {
                   const SizedBox(height: 16),
 
                   TextField(
-                    controller: _passwordController,
+                    controller: passwordController,
                     obscureText: true,
                     textInputAction: TextInputAction.done,
-                    onSubmitted: (_) => _submit(),
+                    onSubmitted: (_) => submit(),
                     decoration: const InputDecoration(
                       labelText: 'Password',
                       border: OutlineInputBorder(),
@@ -119,7 +111,7 @@ if (auth is AsyncData<AuthState>) {
                   const SizedBox(height: 24),
 
                   FilledButton(
-                    onPressed: isLoading ? null : _submit,
+                    onPressed: isLoading ? null : submit,
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
