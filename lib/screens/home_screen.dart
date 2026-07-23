@@ -207,23 +207,27 @@ class _JobList extends ConsumerWidget {
             final isWide = constraints.maxWidth >= 600;
 
             if (isWide) {
-              return GridView.builder(
-                padding: const EdgeInsets.all(8),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 1.2,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
+              return RepaintBoundary(
+                child: GridView.builder(
+                  padding: const EdgeInsets.all(8),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    childAspectRatio: 1.2,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemCount: jobs.length,
+                  itemBuilder: (context, index) => _buildCard(jobs, index),
                 ),
-                itemCount: jobs.length,
-                itemBuilder: (context, index) => _buildCard(jobs, index),
               );
             }
 
-            return ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: jobs.length,
-              itemBuilder: (context, index) => _buildCard(jobs, index),
+            return RepaintBoundary(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: jobs.length,
+                itemBuilder: (context, index) => _buildCard(jobs, index),
+              ),
             );
           },
         );
