@@ -2,6 +2,7 @@ import 'package:careerhub_mobile/providers/jobs_notifier.dart';
 import 'package:careerhub_mobile/widgets/job_status_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 class JobDetailScreen extends ConsumerWidget {
   final String jobId; // changed from int -- Job.id is now a String (Guid)
@@ -31,8 +32,11 @@ class JobDetailScreen extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.error_outline,
-                    size: 48, color: theme.colorScheme.error),
+                Icon(
+                  Icons.error_outline,
+                  size: 48,
+                  color: theme.colorScheme.error,
+                ),
                 const SizedBox(height: 12),
                 Text(
                   'Something went wrong loading this job.',
@@ -59,8 +63,11 @@ class JobDetailScreen extends ConsumerWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.search_off,
-                        size: 48, color: theme.colorScheme.onSurfaceVariant),
+                    Icon(
+                      Icons.search_off,
+                      size: 48,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       'This job could not be found.',
@@ -99,9 +106,18 @@ class JobDetailScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 16),
 
-                _DetailRow(icon: Icons.location_on_outlined, label: job.location),
-                _DetailRow(icon: Icons.work_outline, label: job.employmentType.displayName),
-                _DetailRow(icon: Icons.payments_outlined, label: job.displaySalary),
+                _DetailRow(
+                  icon: Icons.location_on_outlined,
+                  label: job.location,
+                ),
+                _DetailRow(
+                  icon: Icons.work_outline,
+                  label: job.employmentType.displayName,
+                ),
+                _DetailRow(
+                  icon: Icons.payments_outlined,
+                  label: job.displaySalary,
+                ),
                 if (job.closingDate != null)
                   _DetailRow(
                     icon: Icons.event_outlined,
@@ -114,6 +130,16 @@ class JobDetailScreen extends ConsumerWidget {
                 Text('Description', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
                 Text(job.description, style: theme.textTheme.bodyMedium),
+
+                const SizedBox(height: 32),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => context.push('/jobs/$jobId/apply'),
+                    child: const Text('Apply for this job'),
+                  ),
+                ),
               ],
             ),
           );

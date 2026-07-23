@@ -9,6 +9,7 @@ import 'package:careerhub_mobile/widgets/scaffold_with_nav_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:careerhub_mobile/screens/apply_screen.dart';
 
 part 'app_router.g.dart';
 
@@ -35,8 +36,7 @@ GoRouter appRouter(Ref ref) {
       }
 
       final isAuthenticated =
-    auth is AsyncData<AuthState> &&
-    auth.value is Authenticated;
+          auth is AsyncData<AuthState> && auth.value is Authenticated;
 
       final isLoginRoute = state.matchedLocation == '/login';
 
@@ -53,16 +53,11 @@ GoRouter appRouter(Ref ref) {
 
     routes: [
       // Login route sits outside the shell so it has no bottom navigation.
-      GoRoute(
-        path: '/login',
-        builder: (context, state) => const LoginScreen(),
-      ),
+      GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
 
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
-          return ScaffoldWithNavBar(
-            navigationShell: navigationShell,
-          );
+          return ScaffoldWithNavBar(navigationShell: navigationShell);
         },
         branches: [
           // Branch 0: Jobs
@@ -80,6 +75,15 @@ GoRouter appRouter(Ref ref) {
                       final id = state.pathParameters['id']!;
                       return JobDetailScreen(jobId: id);
                     },
+                    routes: [
+                      GoRoute(
+                        path: 'apply',
+                        builder: (context, state) {
+                          final id = state.pathParameters['id']!;
+                          return ApplyScreen(jobId: id);
+                        },
+                      ),
+                    ],
                   ),
                 ],
               ),
